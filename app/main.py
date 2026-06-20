@@ -21,6 +21,7 @@ from app.docker_ops import (
 
 
 BASE_DIR = Path(__file__).resolve().parent
+ASSET_VERSION = "20260620-2"
 ACTIONS = ["start", "stop", "restart"]
 WEEKDAYS = [
     ("mon", "Mo"),
@@ -68,6 +69,7 @@ def render(request: Request, template_name: str, context: dict | None = None, st
     base_context = {
         "request": request,
         "app_name": "docker-scheduler-ui",
+        "asset_version": ASSET_VERSION,
         "message": request.query_params.get("message"),
         "error": request.query_params.get("error"),
         "nav_dashboard_class": "active" if current_path == "/" else "",
@@ -100,6 +102,20 @@ def _with_docker_containers() -> tuple[list[dict], str | None]:
         return list_containers(), None
     except DockerOperationError as exc:
         return [], str(exc)
+
+
+def _dashboard_stats(containers: list[dict]) -> dict:
+    running = sum(1 for container in containers if container["status"] == "running")
+    healthy = sum(1 for container in containers if container["health"] == "healthy")
+    stopped = sum(1 for container in containers if container["status"] in {"exited", "created", "dead"})
+    with_ports = sum(1 for container in containers if container["ports"] != "-")
+    return {
+        "total": len(containers),
+        "running": running,
+        "stopped": stopped,
+        "healthy": healthy,
+        "with_ports": with_ports,
+    }
 
 
 def _short_id(container_id: str) -> str:
@@ -163,7 +179,15 @@ def _schedule_target_label(schedule: dict, containers_by_id: dict[str, dict], gr
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     containers, docker_error = _with_docker_containers()
-    return render(request, "dashboard.html", {"containers": containers, "docker_error": docker_error})
+    return render(
+        request,
+        "dashboard.html",
+        {
+            "containers": containers,
+            "docker_error": docker_error,
+            "stats": _dashboard_stats(containers),
+        },
+    )
 
 
 @app.post("/containers/{container_id}/{action}")

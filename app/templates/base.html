@@ -4,14 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ app_name }}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v={{ asset_version }}">
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href="/">
         <span class="brand-mark">DS</span>
-        <span>{{ app_name }}</span>
+        <span class="brand-text">
+          <span>{{ app_name }}</span>
+          <small>Docker scheduler</small>
+        </span>
       </a>
       <nav class="nav-links" aria-label="Hauptnavigation">
         <a class="{{ nav_dashboard_class }}" href="/">Dashboard</a>
