@@ -64,11 +64,15 @@ def redirect_to(path: str, message: str | None = None, error: str | None = None)
 
 
 def render(request: Request, template_name: str, context: dict | None = None, status_code: int = 200):
+    current_path = request.url.path
     base_context = {
         "request": request,
         "app_name": "docker-scheduler-ui",
         "message": request.query_params.get("message"),
         "error": request.query_params.get("error"),
+        "nav_dashboard_class": "active" if current_path == "/" else "",
+        "nav_groups_class": "active" if current_path.startswith("/groups") else "",
+        "nav_schedules_class": "active" if current_path.startswith("/schedules") else "",
     }
     if context:
         base_context.update(context)
