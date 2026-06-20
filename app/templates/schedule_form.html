@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section-header">
+  <div>
+    <h1>{% if schedule %}Zeitplan bearbeiten{% else %}Zeitplan anlegen{% endif %}</h1>
+    <p>Ohne ausgewaehlte Wochentage laeuft der Zeitplan taeglich.</p>
+  </div>
+</section>
+
+<form class="form" method="post" action="{% if schedule %}/schedules/{{ schedule.id }}/edit{% else %}/schedules/new{% endif %}">
+  <label>
+    Name
+    <input type="text" name="name" value="{{ schedule.name if schedule else '' }}" required>
+  </label>
+
+  <label>
+    Ziel
+    <select name="target" required>
+      <optgroup label="Container">
+        {% for container in containers %}
+        {% set value = 'container:' ~ container.id %}
+        <option value="{{ value }}" {% if schedule and schedule.target_type == 'container' and schedule.target_id == container.id %}selected{% endif %}>{{ container.name }}</option>
+        {% endfor %}
+        {% if schedule and schedule.target_type == 'container' and containers|selectattr('id', 'equalto', schedule.target_id)|list|length == 0 %}
+        <option value="container:{{ schedule.target_id }}" selected>Container {{ schedule.target_id[:12] }} (nicht gefunden)</option>
+        {% endif %}
+      </optgroup>
+      <optgroup label="Gruppen">
+        {% for group in groups %}
+        {% set value = 'group:' ~ group.id %}
+        <option value="{{ value }}" {% if schedule and schedule.target_type == 'group' and schedule.target_id == group.id|string %}selected{% endif %}>{{ group.name }}</option>
+        {% endfor %}
+      </optgroup>
+    </select>
+  </label>
+
+  <label>
+    Aktion
+    <select name="action" required>
+      {% for action in actions %}
+      <option value="{{ action }}" {% if schedule and schedule.action == action %}selected{% endif %}>{{ action }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label>
+    Uhrzeit
+    <input type="time" name="time" value="{% if schedule %}{{ '%02d:%02d'|format(schedule.hour, schedule.minute) }}{% else %}08:00{% endif %}" required>
+  </label>
+
+  <fieldset>
+    <legend>Wochentage</legend>
+    <div class="checkbox-row">
+      {% for value, label in weekdays %}
+      <label class="checkbox">
+        <input type="checkbox" name="weekdays" value="{{ value }}" {% if value in selected_weekdays %}checked{% endif %}>
+        {{ label }}
+      </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  <label class="checkbox">
+    <input type="checkbox" name="enabled" {% if not schedule or schedule.enabled %}checked{% endif %}>
+    Aktiv
+  </label>
+
+  <div class="form-actions">
+    <button class="primary" type="submit">Speichern</button>
+    <a class="button secondary" href="/schedules">Abbrechen</a>
+  </div>
+</form>
+{% endblock %}

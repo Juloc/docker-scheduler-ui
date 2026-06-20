@@ -1,0 +1,70 @@
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+from app import database
+from app.docker_ops import DockerOperationError, run_container_action, run_group_action
+
+
+scheduler = BackgroundScheduler()
+
+
+def _job_id(schedule_id: int) -> str:
+    return f"schedule-{schedule_id}"
+
+
+def start_scheduler() -> None:
+    reload_schedules()
+    if not scheduler.running:
+        scheduler.start()
+
+
+def shutdown_scheduler() -> None:
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+
+
+def reload_schedules() -> None:
+    for job in scheduler.get_jobs():
+        if job.id.startswith("schedule-"):
+            scheduler.remove_job(job.id)
+
+    for schedule in database.list_enabled_schedules():
+        trigger = CronTrigger(
+            day_of_week=schedule["weekdays"] or None,
+            hour=schedule["hour"],
+            minute=schedule["minute"],
+        )
+        scheduler.add_job(
+            run_schedule,
+            trigger=trigger,
+            args=[schedule["id"]],
+            id=_job_id(schedule["id"]),
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=300,
+        )
+
+
+def run_schedule(schedule_id: int) -> None:
+    schedule = database.get_schedule(schedule_id)
+    if not schedule or not schedule["enabled"]:
+        return
+
+    try:
+        if schedule["target_type"] == "container":
+            run_container_action(schedule["target_id"], schedule["action"])
+        elif schedule["target_type"] == "group":
+            run_group_action(int(schedule["target_id"]), schedule["action"])
+        else:
+            raise DockerOperationError("Ungueltiges Zeitplan-Ziel.")
+        database.mark_schedule_run(schedule_id, None)
+    except Exception as exc:  # APScheduler must keep running even if one Docker action fails.
+        database.mark_schedule_run(schedule_id, str(exc))
+
+
+def get_next_run_time(schedule_id: int) -> str:
+    job = scheduler.get_job(_job_id(schedule_id))
+    if not job or not job.next_run_time:
+        return "-"
+    return job.next_run_time.strftime("%Y-%m-%d %H:%M")

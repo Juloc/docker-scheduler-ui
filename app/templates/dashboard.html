@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section-header">
+  <div>
+    <h1>Container</h1>
+    <p>Alle Docker-Container, inklusive gestoppter Container.</p>
+  </div>
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Image</th>
+        <th>Status</th>
+        <th>Health</th>
+        <th>Ports</th>
+        <th>Restart Policy</th>
+        <th>Aktionen</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for container in containers %}
+      <tr>
+        <td><strong>{{ container.name }}</strong><br><span class="muted">{{ container.short_id }}</span></td>
+        <td>{{ container.image }}</td>
+        <td><span class="pill">{{ container.status }}</span></td>
+        <td>{{ container.health }}</td>
+        <td>{{ container.ports }}</td>
+        <td>{{ container.restart_policy }}</td>
+        <td class="actions">
+          <form method="post" action="/containers/{{ container.id }}/start"><button>Start</button></form>
+          <form method="post" action="/containers/{{ container.id }}/stop"><button>Stop</button></form>
+          <form method="post" action="/containers/{{ container.id }}/restart"><button>Restart</button></form>
+          <a class="button secondary" href="/containers/{{ container.id }}/logs">Logs</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="7" class="empty">Keine Container gefunden.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

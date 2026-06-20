@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section-header">
+  <div>
+    <h1>{% if group %}Gruppe bearbeiten{% else %}Gruppe anlegen{% endif %}</h1>
+    <p>Reihenfolge und Wartezeit gelten fuer Gruppenaktionen.</p>
+  </div>
+</section>
+
+<form class="form" method="post" action="{% if group %}/groups/{{ group.id }}/edit{% else %}/groups/new{% endif %}">
+  <label>
+    Name
+    <input type="text" name="name" value="{{ group.name if group else '' }}" required>
+  </label>
+
+  <label>
+    Wartezeit zwischen Containern (Sekunden)
+    <input type="number" min="0" name="delay_seconds" value="{{ group.delay_seconds if group else 5 }}">
+  </label>
+
+  <h2>Container</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Auswahl</th>
+          <th>Reihenfolge</th>
+          <th>Name</th>
+          <th>Image</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for container in containers %}
+        <tr>
+          <td><input type="checkbox" name="containers" value="{{ container.id }}" {% if container.id in selected_containers %}checked{% endif %}></td>
+          <td><input class="small-input" type="number" min="1" name="order_{{ container.id }}" value="{{ selected_containers.get(container.id, loop.index) }}"></td>
+          <td>{{ container.name }}<br><span class="muted">{{ container.short_id }}</span></td>
+          <td>{{ container.image }}</td>
+          <td>{{ container.status }}</td>
+        </tr>
+        {% endfor %}
+        {% for container in missing_containers %}
+        <tr>
+          <td><input type="checkbox" name="containers" value="{{ container.id }}" checked></td>
+          <td><input class="small-input" type="number" min="1" name="order_{{ container.id }}" value="{{ container.position }}"></td>
+          <td>Container {{ container.name }}<br><span class="warning">nicht gefunden</span></td>
+          <td>-</td>
+          <td>-</td>
+        </tr>
+        {% endfor %}
+        {% if not containers and not missing_containers %}
+        <tr>
+          <td colspan="5" class="empty">Keine Container verfuegbar.</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="form-actions">
+    <button class="primary" type="submit">Speichern</button>
+    <a class="button secondary" href="/groups">Abbrechen</a>
+  </div>
+</form>
+{% endblock %}

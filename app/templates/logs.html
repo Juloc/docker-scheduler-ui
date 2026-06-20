@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section-header">
+  <div>
+    <h1>Logs</h1>
+    {% if container %}
+    <p>Letzte 100 Logzeilen fuer {{ container.name }}.</p>
+    {% endif %}
+  </div>
+  <a class="button secondary" href="/">Zurueck</a>
+</section>
+
+{% if logs %}
+<pre class="logs">{{ logs }}</pre>
+{% elif not docker_error %}
+<p class="empty">Keine Logs vorhanden.</p>
+{% endif %}
+{% endblock %}

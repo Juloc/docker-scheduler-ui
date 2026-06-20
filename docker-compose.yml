@@ -1,0 +1,13 @@
+services:
+  docker-scheduler-ui:
+    build: .
+    container_name: docker-scheduler-ui
+    restart: unless-stopped
+    ports:
+      - "8099:8099"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+    environment:
+      APP_USER: admin
+      APP_PASSWORD: change-me

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section-header">
+  <div>
+    <h1>Zeitplaene</h1>
+    <p>Geplante Start-, Stop- und Restart-Aktionen.</p>
+  </div>
+  <a class="button primary" href="/schedules/new">Zeitplan anlegen</a>
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Ziel</th>
+        <th>Aktion</th>
+        <th>Zeit</th>
+        <th>Tage</th>
+        <th>Status</th>
+        <th>Naechster Lauf</th>
+        <th>Letzter Fehler</th>
+        <th>Aktionen</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for schedule in schedules %}
+      <tr>
+        <td><strong>{{ schedule.name }}</strong></td>
+        <td>{{ schedule.target_label }}</td>
+        <td>{{ schedule.action }}</td>
+        <td>{{ schedule.time_label }}</td>
+        <td>{{ schedule.weekdays_label }}</td>
+        <td>{% if schedule.enabled %}<span class="pill ok">aktiv</span>{% else %}<span class="pill">inaktiv</span>{% endif %}</td>
+        <td>{{ schedule.next_run }}</td>
+        <td>{% if schedule.last_error %}<span class="warning">{{ schedule.last_error }}</span>{% else %}-{% endif %}</td>
+        <td class="actions">
+          <form method="post" action="/schedules/{{ schedule.id }}/toggle"><button>{% if schedule.enabled %}Deaktivieren{% else %}Aktivieren{% endif %}</button></form>
+          <a class="button secondary" href="/schedules/{{ schedule.id }}/edit">Bearbeiten</a>
+          <form method="post" action="/schedules/{{ schedule.id }}/delete" onsubmit="return confirm('Zeitplan wirklich loeschen?');"><button class="danger">Loeschen</button></form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="9" class="empty">Keine Zeitplaene angelegt.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

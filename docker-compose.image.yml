@@ -1,0 +1,13 @@
+services:
+  docker-scheduler-ui:
+    image: ghcr.io/juloc/docker-scheduler-ui:latest
+    container_name: docker-scheduler-ui
+    restart: unless-stopped
+    ports:
+      - "8099:8099"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/docker-scheduler-ui/data:/app/data
+    environment:
+      APP_USER: ${APP_USER}
+      APP_PASSWORD: ${APP_PASSWORD}

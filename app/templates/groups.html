@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section-header">
+  <div>
+    <h1>Gruppen</h1>
+    <p>Container in Reihenfolge starten, stoppen oder neu starten.</p>
+  </div>
+  <a class="button primary" href="/groups/new">Gruppe anlegen</a>
+</section>
+
+<div class="stack">
+  {% for group in groups %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>{{ group.name }}</h2>
+        <p>{{ group.containers|length }} Container, {{ group.delay_seconds }}s Wartezeit</p>
+      </div>
+      <div class="actions">
+        <form method="post" action="/groups/{{ group.id }}/start"><button>Start</button></form>
+        <form method="post" action="/groups/{{ group.id }}/stop" onsubmit="return confirm('Gruppe wirklich stoppen?');"><button>Stop</button></form>
+        <form method="post" action="/groups/{{ group.id }}/restart" onsubmit="return confirm('Gruppe wirklich neu starten?');"><button>Restart</button></form>
+        <a class="button secondary" href="/groups/{{ group.id }}/edit">Bearbeiten</a>
+        <form method="post" action="/groups/{{ group.id }}/delete" onsubmit="return confirm('Gruppe wirklich loeschen? Zeitplaene fuer diese Gruppe werden ebenfalls geloescht.');"><button class="danger">Loeschen</button></form>
+      </div>
+    </div>
+
+    <ol class="ordered-list">
+      {% for container in group.containers %}
+      <li>
+        <span>{{ container.position }}. {{ container.display_name }}</span>
+        {% if container.missing %}<span class="warning">nicht gefunden</span>{% endif %}
+      </li>
+      {% else %}
+      <li class="empty">Keine Container in dieser Gruppe.</li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% else %}
+  <p class="empty">Noch keine Gruppen angelegt.</p>
+  {% endfor %}
+</div>
+{% endblock %}
