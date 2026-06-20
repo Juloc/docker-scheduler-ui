@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
@@ -21,7 +21,7 @@ from app.docker_ops import (
 
 
 BASE_DIR = Path(__file__).resolve().parent
-ASSET_VERSION = "20260620-2"
+ASSET_VERSION = "20260620-3"
 ACTIONS = ["start", "stop", "restart"]
 WEEKDAYS = [
     ("mon", "Mo"),
@@ -208,6 +208,19 @@ def container_logs(request: Request, container_id: str):
         return render(request, "logs.html", {"container": container, "logs": logs})
     except DockerOperationError as exc:
         return render(request, "logs.html", {"container": None, "logs": "", "docker_error": str(exc)})
+
+
+@app.get("/containers/{container_id}/logs/preview", response_class=PlainTextResponse)
+def container_logs_preview(container_id: str):
+    try:
+        _, logs = get_container_logs(container_id, tail=30)
+        return PlainTextResponse(logs or "Keine Logs vorhanden.", media_type="text/plain; charset=utf-8")
+    except DockerOperationError as exc:
+        return PlainTextResponse(
+            f"Fehler beim Laden der Log-Vorschau: {exc}",
+            status_code=500,
+            media_type="text/plain; charset=utf-8",
+        )
 
 
 @app.get("/groups", response_class=HTMLResponse)

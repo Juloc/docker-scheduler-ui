@@ -26,6 +26,20 @@
   </div>
 </section>
 
+<section class="dashboard-toolbar" aria-label="Container-Filter">
+  <label class="search-box">
+    <span>Suchen</span>
+    <input id="container-search" type="search" placeholder="Name, Image, Status..." autocomplete="off">
+  </label>
+  <div class="status-tabs" aria-label="Statusfilter">
+    <button type="button" class="active" data-status-filter="all">Alle</button>
+    <button type="button" data-status-filter="running">Running</button>
+    <button type="button" data-status-filter="stopped">Stopped</button>
+    <button type="button" data-status-filter="unhealthy">Unhealthy</button>
+  </div>
+  <span class="visible-count"><span id="visible-container-count">{{ stats.total }}</span> sichtbar</span>
+</section>
+
 <div class="table-wrap dashboard-table">
   <table class="compact-table">
     <colgroup>
@@ -48,35 +62,61 @@
     </thead>
     <tbody>
       {% for container in containers %}
-      <tr class="container-row">
+      <tr
+        class="container-row"
+        data-container-row="{{ container.id }}"
+        data-status="{{ container.status }}"
+        data-health="{{ container.health }}"
+        data-search="{{ container.name }} {{ container.image }} {{ container.short_id }} {{ container.status }} {{ container.health }} {{ container.restart_policy }}"
+      >
         <td class="name-cell">
-          <div class="container-name">{{ container.name }}</div>
-          <details class="row-details">
-            <summary>Details anzeigen</summary>
-            <div class="detail-grid">
-              <div>
-                <span class="detail-label">Container ID</span>
-                <code>{{ container.id }}</code>
-              </div>
-              <div>
-                <span class="detail-label">Ports</span>
-                <code>{{ container.ports }}</code>
-              </div>
-            </div>
-          </details>
+          <div class="name-stack">
+            <div class="container-name">{{ container.name }}</div>
+            <span class="muted">{{ container.short_id }}</span>
+          </div>
         </td>
         <td>
           <div class="image-name truncate" title="{{ container.image }}">{{ container.image }}</div>
-          <span class="muted">{{ container.short_id }}</span>
         </td>
         <td><span class="pill status-{{ container.status }}"><span class="status-dot"></span>{{ container.status }}</span></td>
         <td>{% if container.health == 'healthy' %}<span class="pill ok"><span class="status-dot"></span>healthy</span>{% else %}<span class="muted">{{ container.health }}</span>{% endif %}</td>
         <td>{{ container.restart_policy }}</td>
-        <td class="actions action-buttons">
-          <form method="post" action="/containers/{{ container.id }}/start"><button class="btn-start">Start</button></form>
-          <form method="post" action="/containers/{{ container.id }}/stop"><button class="btn-stop">Stop</button></form>
-          <form method="post" action="/containers/{{ container.id }}/restart"><button class="btn-restart">Restart</button></form>
-          <a class="button secondary" href="/containers/{{ container.id }}/logs">Logs</a>
+        <td class="action-cell">
+          <div class="actions action-buttons">
+            <form method="post" action="/containers/{{ container.id }}/start"><button class="btn-start">Start</button></form>
+            <form method="post" action="/containers/{{ container.id }}/stop"><button class="btn-stop">Stop</button></form>
+            <form method="post" action="/containers/{{ container.id }}/restart"><button class="btn-restart">Restart</button></form>
+            <a class="button secondary" href="/containers/{{ container.id }}/logs">Logs</a>
+          </div>
+        </td>
+      </tr>
+      <tr class="container-detail-row" data-detail-for="{{ container.id }}">
+        <td colspan="6">
+          <details class="container-details" data-container-id="{{ container.id }}">
+            <summary>Details, Ports und Log-Vorschau</summary>
+            <div class="detail-panel">
+              <div class="detail-grid">
+                <div>
+                  <span class="detail-label">Container ID</span>
+                  <code>{{ container.id }}</code>
+                </div>
+                <div>
+                  <span class="detail-label">Ports</span>
+                  <code>{{ container.ports }}</code>
+                </div>
+              </div>
+              <div class="log-preview">
+                <div class="log-preview-header">
+                  <div>
+                    <span class="detail-label">Log-Vorschau</span>
+                    <strong>Letzte 30 Zeilen</strong>
+                  </div>
+                  <button type="button" class="secondary refresh-log-preview" data-container-id="{{ container.id }}">Neu laden</button>
+                </div>
+                <pre class="log-preview-output" data-log-output="{{ container.id }}">Noch nicht geladen.</pre>
+              </div>
+            </div>
+          </details>
         </td>
       </tr>
       {% else %}
@@ -87,4 +127,8 @@
     </tbody>
   </table>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', path='/dashboard.js') }}?v={{ asset_version }}"></script>
 {% endblock %}
