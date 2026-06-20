@@ -8,12 +8,18 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/">{{ app_name }}</a>
-    <nav>
-      <a href="/">Dashboard</a>
-      <a href="/groups">Gruppen</a>
-      <a href="/schedules">Zeitplaene</a>
-    </nav>
+    {% set current_path = request.url.path %}
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <span class="brand-mark">DS</span>
+        <span>{{ app_name }}</span>
+      </a>
+      <nav class="nav-links" aria-label="Hauptnavigation">
+        <a class="{% if current_path == '/' %}active{% endif }}" href="/">Dashboard</a>
+        <a class="{% if current_path.startswith('/groups') %}active{% endif }}" href="/groups">Gruppen</a>
+        <a class="{% if current_path.startswith('/schedules') %}active{% endif }}" href="/schedules">Zeitplaene</a>
+      </nav>
+    </div>
   </header>
 
   <main class="page">
