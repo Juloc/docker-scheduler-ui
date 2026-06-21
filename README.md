@@ -88,10 +88,10 @@ sudo mkdir -p /opt/docker-scheduler-ui/data
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `APP_USER` | `admin` | Login username |
-| `APP_PASSWORD` | `change-me` | Login password |
+| `APP_USER` | required | Login username |
+| `APP_PASSWORD` | required | Login password |
 | `AUTH_MODE` | `basic` | `basic` for browser auth, `form` for the built-in login page |
-| `APP_SECRET` | `APP_PASSWORD` value | Secret used to sign form-login session cookies |
+| `APP_SECRET` | required by the provided Compose files | Secret used to sign form-login session cookies |
 | `AUTH_SESSION_SECONDS` | `43200` | Form-login session duration in seconds |
 | `AUTH_COOKIE_SECURE` | `false` | Set to `true` when serving the app over HTTPS |
 | `APP_DB` | `/app/data/app.db` | SQLite database path |
@@ -122,7 +122,7 @@ Mount checks only work for paths that are visible inside the `docker-scheduler-u
 volumes:
   - /var/run/docker.sock:/var/run/docker.sock
   - ./data:/app/data
-  - /mnt/media:/mnt/media:ro
+  - /mnt/nas:/mnt/nas:ro
 ```
 
 Group options:
@@ -143,7 +143,7 @@ Skipped runs are written to the run log with status `skipped`.
 python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
-APP_DB=./data/app.db APP_USER=admin APP_PASSWORD=change-me uvicorn app.main:app --reload --port 8099
+APP_DB=./data/app.db APP_USER=local-user APP_PASSWORD=local-password APP_SECRET=local-secret uvicorn app.main:app --reload --port 8099
 ```
 
 Windows PowerShell:
@@ -153,7 +153,8 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 $env:APP_DB="./data/app.db"
-$env:APP_USER="admin"
-$env:APP_PASSWORD="change-me"
+$env:APP_USER="local-user"
+$env:APP_PASSWORD="local-password"
+$env:APP_SECRET="local-secret"
 uvicorn app.main:app --reload --port 8099
 ```

@@ -18,7 +18,7 @@ from app.docker_ops import (
 
 
 BASE_DIR = Path(__file__).resolve().parent
-ASSET_VERSION = "20260621-2"
+ASSET_VERSION = "20260621-3"
 ACTIONS = ["start", "stop", "restart"]
 WEEKDAYS = [
     ("mon", "Mon"),
@@ -34,6 +34,7 @@ WEEKDAY_LABELS = dict(WEEKDAYS)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    auth.validate_configuration()
     database.init_db()
     scheduler_service.start_scheduler()
     yield
@@ -313,8 +314,8 @@ def check_nas():
     return redirect_to("/nas", error=status["last_error"] or "NAS is not ready.")
 
 
-@app.post("/nas/start-media")
-def start_nas_media_groups():
+@app.post("/nas/start-dependent-groups")
+def start_nas_dependent_groups():
     status = nas_service.check_status()
     if not status["enabled"]:
         return redirect_to("/nas", error="NAS checks are disabled.")

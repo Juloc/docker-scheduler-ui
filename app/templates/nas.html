@@ -8,8 +8,8 @@
   </div>
   <div class="actions">
     <form method="post" action="/nas/check"><button>Check Now</button></form>
-    <form method="post" action="/nas/start-media" onsubmit="return confirm('Verify NAS and start all groups marked for NAS auto-start?');">
-      <button class="primary">NAS is on, verify mounts and start media</button>
+    <form method="post" action="/nas/start-dependent-groups" onsubmit="return confirm('Verify NAS and start all groups marked for NAS auto-start?');">
+      <button class="primary">Verify NAS and start dependent groups</button>
     </form>
   </div>
 </section>
@@ -69,7 +69,7 @@
 
       <label>
         NAS host or IP
-        <input type="text" name="host" value="{{ nas_status.host }}" placeholder="192.168.1.131">
+        <input type="text" name="host" value="{{ nas_status.host }}" placeholder="nas.local or your NAS IP">
       </label>
 
       <label>
@@ -79,7 +79,7 @@
 
       <label>
         Mount paths to verify
-        <textarea name="mount_paths" rows="5" placeholder="/mnt/media&#10;/mnt/downloads">{{ nas_status.mount_paths_text }}</textarea>
+        <textarea name="mount_paths" rows="5" placeholder="/mnt/nas&#10;/mnt/nas/share">{{ nas_status.mount_paths_text }}</textarea>
       </label>
 
       <div class="form-actions">
@@ -94,7 +94,7 @@
     <div class="panel-header">
       <div>
         <h2>Auto-start Groups</h2>
-        <p>Started when NAS changes from not ready to ready, and by the media button.</p>
+        <p>Started when NAS changes from not ready to ready, and by the dependent-groups button.</p>
       </div>
     </div>
     <ul class="plain-list">
@@ -127,7 +127,7 @@
   <div class="panel-header">
     <div>
       <h2>NAS-triggered Runs</h2>
-      <p>Actions started by NAS online/offline automation or the media button.</p>
+      <p>Actions started by NAS online/offline automation or the dependent-groups button.</p>
     </div>
   </div>
   {% if recent_runs %}

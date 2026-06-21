@@ -121,7 +121,7 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
 def _ensure_default_settings(conn: sqlite3.Connection) -> None:
     defaults = {
         "nas_enabled": "0",
-        "nas_host": "192.168.1.131",
+        "nas_host": "",
         "nas_check_interval_seconds": "60",
         "nas_mount_paths": "",
         "nas_last_ready": "0",
@@ -405,7 +405,7 @@ def get_nas_settings() -> dict[str, str]:
         settings = {row["key"]: row["value"] for row in rows}
     defaults = {
         "nas_enabled": "0",
-        "nas_host": "192.168.1.131",
+        "nas_host": "",
         "nas_check_interval_seconds": "60",
         "nas_mount_paths": "",
         "nas_last_ready": "0",

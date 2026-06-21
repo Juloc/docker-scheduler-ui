@@ -13,13 +13,35 @@ from fastapi.responses import RedirectResponse, Response
 SESSION_COOKIE = "docker_scheduler_session"
 
 
+class AuthConfigurationError(RuntimeError):
+    pass
+
+
 def get_auth_mode() -> str:
     mode = os.getenv("AUTH_MODE", "basic").strip().lower()
     return mode if mode in {"basic", "form"} else "basic"
 
 
+def configuration_error() -> str | None:
+    if not os.getenv("APP_USER") or not os.getenv("APP_PASSWORD"):
+        return "APP_USER and APP_PASSWORD must be set."
+    if get_auth_mode() == "form" and not os.getenv("APP_SECRET"):
+        return "APP_SECRET must be set when AUTH_MODE=form."
+    return None
+
+
+def validate_configuration() -> None:
+    error = configuration_error()
+    if error:
+        raise AuthConfigurationError(error)
+
+
 def _credentials() -> tuple[str, str]:
-    return os.getenv("APP_USER", "admin"), os.getenv("APP_PASSWORD", "change-me")
+    username = os.getenv("APP_USER")
+    password = os.getenv("APP_PASSWORD")
+    if not username or not password:
+        raise AuthConfigurationError("APP_USER and APP_PASSWORD must be set.")
+    return username, password
 
 
 def verify_credentials(username: str, password: str) -> bool:
@@ -28,7 +50,9 @@ def verify_credentials(username: str, password: str) -> bool:
 
 
 def _secret() -> bytes:
-    secret = os.getenv("APP_SECRET") or os.getenv("APP_PASSWORD", "change-me")
+    secret = os.getenv("APP_SECRET") or os.getenv("APP_PASSWORD")
+    if not secret:
+        raise AuthConfigurationError("APP_SECRET or APP_PASSWORD must be set.")
     return secret.encode("utf-8")
 
 

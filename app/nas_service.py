@@ -38,7 +38,7 @@ def current_status() -> dict:
     settings = database.get_nas_settings()
     return {
         "enabled": _as_bool(settings.get("nas_enabled")),
-        "host": settings.get("nas_host", "192.168.1.131"),
+        "host": settings.get("nas_host", ""),
         "check_interval_seconds": max(
             10,
             _as_int(settings.get("nas_check_interval_seconds"), 60),
