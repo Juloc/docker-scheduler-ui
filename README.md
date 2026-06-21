@@ -33,10 +33,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/app/data
     environment:
-      AUTH_MODE: basic
-      APP_USER: admin
-      APP_PASSWORD: change-me
-      APP_SECRET: change-this-secret
+      AUTH_MODE: ${AUTH_MODE:-basic}
+      APP_USER: ${APP_USER:?Set APP_USER}
+      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD}
+      APP_SECRET: ${APP_SECRET:?Set APP_SECRET}
 ```
 
 Start it with:
@@ -68,9 +68,9 @@ services:
       - /opt/docker-scheduler-ui/data:/app/data
     environment:
       AUTH_MODE: ${AUTH_MODE:-basic}
-      APP_USER: ${APP_USER}
-      APP_PASSWORD: ${APP_PASSWORD}
-      APP_SECRET: ${APP_SECRET:-change-this-secret}
+      APP_USER: ${APP_USER:?Set APP_USER}
+      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD}
+      APP_SECRET: ${APP_SECRET:?Set APP_SECRET}
 ```
 
 Create the host data directory before deploying:
@@ -91,7 +91,13 @@ sudo mkdir -p /opt/docker-scheduler-ui/data
 | `AUTH_COOKIE_SECURE` | `false` | Set to `true` when serving the app over HTTPS |
 | `APP_DB` | `/app/data/app.db` | SQLite database path |
 
-Change the default password before exposing the UI.
+Do not commit real credentials or secrets. Set them as environment variables in your deployment system.
+
+Generate a suitable `APP_SECRET` with:
+
+```bash
+openssl rand -hex 32
+```
 
 ## Persistence
 

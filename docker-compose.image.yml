@@ -10,6 +10,6 @@ services:
       - /opt/docker-scheduler-ui/data:/app/data
     environment:
       AUTH_MODE: ${AUTH_MODE:-basic}
-      APP_USER: ${APP_USER}
-      APP_PASSWORD: ${APP_PASSWORD}
-      APP_SECRET: ${APP_SECRET:-change-this-secret}
+      APP_USER: ${APP_USER:?Set APP_USER}
+      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD}
+      APP_SECRET: ${APP_SECRET:?Set APP_SECRET}
