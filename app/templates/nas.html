@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section-header">
+  <div>
+    <h1>NAS Guard</h1>
+    <p>Gate group and schedule execution on NAS reachability and optional mount checks.</p>
+  </div>
+  <div class="actions">
+    <form method="post" action="/nas/check"><button>Check Now</button></form>
+    <form method="post" action="/nas/start-media" onsubmit="return confirm('Verify NAS and start all groups marked for NAS auto-start?');">
+      <button class="primary">NAS is on, verify mounts and start media</button>
+    </form>
+  </div>
+</section>
+
+<div class="nas-grid">
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Current Status</h2>
+        <p>Last known NAS state from the configured checks.</p>
+      </div>
+      {% if not nas_status.enabled %}
+      <span class="pill">disabled</span>
+      {% elif nas_status.ready %}
+      <span class="pill status-success">ready</span>
+      {% else %}
+      <span class="pill status-failed">offline</span>
+      {% endif %}
+    </div>
+
+    <dl class="status-list">
+      <div>
+        <dt>Host</dt>
+        <dd>{{ nas_status.host if nas_status.host else '-' }}</dd>
+      </div>
+      <div>
+        <dt>Host reachable</dt>
+        <dd>{% if nas_status.host_online %}yes{% else %}no{% endif %}</dd>
+      </div>
+      <div>
+        <dt>Mounts OK</dt>
+        <dd>{% if nas_status.mounts_ok %}yes{% else %}no{% endif %}</dd>
+      </div>
+      <div>
+        <dt>Last checked</dt>
+        <dd>{{ nas_status.last_checked_at if nas_status.last_checked_at else '-' }}</dd>
+      </div>
+      <div>
+        <dt>Last error</dt>
+        <dd>{% if nas_status.last_error %}<span class="warning">{{ nas_status.last_error }}</span>{% else %}-{% endif %}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Settings</h2>
+        <p>Mount paths must be visible inside this app container.</p>
+      </div>
+    </div>
+    <form class="settings-form" method="post" action="/nas/settings">
+      <label class="checkbox">
+        <input type="checkbox" name="enabled" {% if nas_status.enabled %}checked{% endif %}>
+        Enable NAS checks
+      </label>
+
+      <label>
+        NAS host or IP
+        <input type="text" name="host" value="{{ nas_status.host }}" placeholder="192.168.1.131">
+      </label>
+
+      <label>
+        Check interval (seconds)
+        <input type="number" min="10" name="check_interval_seconds" value="{{ nas_status.check_interval_seconds }}">
+      </label>
+
+      <label>
+        Mount paths to verify
+        <textarea name="mount_paths" rows="5" placeholder="/mnt/media&#10;/mnt/downloads">{{ nas_status.mount_paths_text }}</textarea>
+      </label>
+
+      <div class="form-actions">
+        <button class="primary" type="submit">Save NAS Settings</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<div class="nas-grid">
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Auto-start Groups</h2>
+        <p>Started when NAS changes from not ready to ready, and by the media button.</p>
+      </div>
+    </div>
+    <ul class="plain-list">
+      {% for group in auto_start_groups %}
+      <li>{{ group.name }}</li>
+      {% else %}
+      <li class="empty">No groups are marked for NAS auto-start.</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Auto-stop Groups</h2>
+        <p>Stopped when NAS changes from ready to not ready.</p>
+      </div>
+    </div>
+    <ul class="plain-list">
+      {% for group in auto_stop_groups %}
+      <li>{{ group.name }}</li>
+      {% else %}
+      <li class="empty">No groups are marked for NAS auto-stop.</li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+
+<section class="panel run-log-panel">
+  <div class="panel-header">
+    <div>
+      <h2>NAS-triggered Runs</h2>
+      <p>Actions started by NAS online/offline automation or the media button.</p>
+    </div>
+  </div>
+  {% if recent_runs %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Started</th>
+          <th>Group</th>
+          <th>Action</th>
+          <th>Trigger</th>
+          <th>Status</th>
+          <th>Error</th>
+          <th>Log</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in recent_runs %}
+        <tr>
+          <td>{{ run.started_at }}</td>
+          <td>{{ run.target_label }}</td>
+          <td>{{ run.action }}</td>
+          <td>{{ run.trigger_type }}</td>
+          <td><span class="pill status-{{ run.status }}">{{ run.status }}</span></td>
+          <td>{% if run.error %}<span class="warning">{{ run.error }}</span>{% else %}-{% endif %}</td>
+          <td><a class="button secondary" href="/runs/{{ run.id }}">Open</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No NAS-triggered runs yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

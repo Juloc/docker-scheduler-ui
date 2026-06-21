@@ -16,6 +16,11 @@
       <div>
         <h2>{{ group.name }}</h2>
         <p>{{ group.containers|length }} containers, {{ group.delay_seconds }}s delay</p>
+        <div class="badge-row">
+          {% if group.requires_nas %}<span class="pill nas-pill">requires NAS</span>{% endif %}
+          {% if group.auto_start_on_nas_online %}<span class="pill nas-pill">auto-start on NAS ready</span>{% endif %}
+          {% if group.auto_stop_on_nas_offline %}<span class="pill nas-pill">auto-stop on NAS offline</span>{% endif %}
+        </div>
       </div>
       <div class="actions">
         <form method="post" action="/groups/{{ group.id }}/start"><button>Start</button></form>

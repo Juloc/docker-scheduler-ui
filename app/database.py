@@ -36,6 +36,9 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 delay_seconds INTEGER NOT NULL DEFAULT 5,
+                requires_nas INTEGER NOT NULL DEFAULT 0,
+                auto_start_on_nas_online INTEGER NOT NULL DEFAULT 0,
+                auto_stop_on_nas_offline INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -60,10 +63,16 @@ def init_db() -> None:
                 minute INTEGER NOT NULL CHECK (minute BETWEEN 0 AND 59),
                 weekdays TEXT NOT NULL DEFAULT '',
                 enabled INTEGER NOT NULL DEFAULT 1,
+                require_nas INTEGER NOT NULL DEFAULT 0,
                 last_run_at TEXT,
                 last_error TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS action_runs (
@@ -96,12 +105,37 @@ def init_db() -> None:
             """
         )
         _ensure_column(conn, "group_containers", "container_name", "TEXT")
+        _ensure_column(conn, "groups", "requires_nas", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "groups", "auto_start_on_nas_online", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "groups", "auto_stop_on_nas_offline", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "schedules", "require_nas", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_default_settings(conn)
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
     columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _ensure_default_settings(conn: sqlite3.Connection) -> None:
+    defaults = {
+        "nas_enabled": "0",
+        "nas_host": "192.168.1.131",
+        "nas_check_interval_seconds": "60",
+        "nas_mount_paths": "",
+        "nas_last_ready": "0",
+        "nas_last_host_online": "0",
+        "nas_last_mounts_ok": "0",
+        "nas_last_checked_at": "",
+        "nas_last_error": "",
+        "nas_last_automation_ready": "0",
+    }
+    for key, value in defaults.items():
+        conn.execute(
+            "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)",
+            (key, value),
+        )
 
 
 def list_groups() -> list[dict]:
@@ -155,15 +189,33 @@ def _replace_group_containers(
         )
 
 
-def create_group(name: str, delay_seconds: int, containers: list[tuple[str, str, int]]) -> int:
+def create_group(
+    name: str,
+    delay_seconds: int,
+    containers: list[tuple[str, str, int]],
+    requires_nas: bool = False,
+    auto_start_on_nas_online: bool = False,
+    auto_stop_on_nas_offline: bool = False,
+) -> int:
     now = _now()
     with get_connection() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO groups (name, delay_seconds, created_at, updated_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO groups (
+                name, delay_seconds, requires_nas, auto_start_on_nas_online,
+                auto_stop_on_nas_offline, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (name, delay_seconds, now, now),
+            (
+                name,
+                delay_seconds,
+                1 if requires_nas else 0,
+                1 if auto_start_on_nas_online else 0,
+                1 if auto_stop_on_nas_offline else 0,
+                now,
+                now,
+            ),
         )
         group_id = int(cursor.lastrowid)
         _replace_group_containers(conn, group_id, containers)
@@ -175,15 +227,28 @@ def update_group(
     name: str,
     delay_seconds: int,
     containers: list[tuple[str, str, int]],
+    requires_nas: bool = False,
+    auto_start_on_nas_online: bool = False,
+    auto_stop_on_nas_offline: bool = False,
 ) -> None:
     with get_connection() as conn:
         conn.execute(
             """
             UPDATE groups
-            SET name = ?, delay_seconds = ?, updated_at = ?
+            SET name = ?, delay_seconds = ?, requires_nas = ?,
+                auto_start_on_nas_online = ?, auto_stop_on_nas_offline = ?,
+                updated_at = ?
             WHERE id = ?
             """,
-            (name, delay_seconds, _now(), group_id),
+            (
+                name,
+                delay_seconds,
+                1 if requires_nas else 0,
+                1 if auto_start_on_nas_online else 0,
+                1 if auto_stop_on_nas_offline else 0,
+                _now(),
+                group_id,
+            ),
         )
         _replace_group_containers(conn, group_id, containers)
 
@@ -236,6 +301,7 @@ def create_schedule(
     minute: int,
     weekdays: str,
     enabled: bool,
+    require_nas: bool = False,
 ) -> int:
     now = _now()
     with get_connection() as conn:
@@ -243,9 +309,9 @@ def create_schedule(
             """
             INSERT INTO schedules (
                 name, target_type, target_id, action, hour, minute,
-                weekdays, enabled, created_at, updated_at
+                weekdays, enabled, require_nas, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name,
@@ -256,6 +322,7 @@ def create_schedule(
                 minute,
                 weekdays,
                 1 if enabled else 0,
+                1 if require_nas else 0,
                 now,
                 now,
             ),
@@ -273,6 +340,7 @@ def update_schedule(
     minute: int,
     weekdays: str,
     enabled: bool,
+    require_nas: bool = False,
 ) -> None:
     with get_connection() as conn:
         conn.execute(
@@ -280,6 +348,7 @@ def update_schedule(
             UPDATE schedules
             SET name = ?, target_type = ?, target_id = ?, action = ?,
                 hour = ?, minute = ?, weekdays = ?, enabled = ?,
+                require_nas = ?,
                 updated_at = ?
             WHERE id = ?
             """,
@@ -292,10 +361,62 @@ def update_schedule(
                 minute,
                 weekdays,
                 1 if enabled else 0,
+                1 if require_nas else 0,
                 _now(),
                 schedule_id,
             ),
         )
+
+
+def get_setting(key: str, default: str = "") -> str:
+    with get_connection() as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        return str(row["value"]) if row else default
+
+
+def set_setting(key: str, value: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+
+
+def set_settings(values: dict[str, str]) -> None:
+    with get_connection() as conn:
+        for key, value in values.items():
+            conn.execute(
+                """
+                INSERT INTO app_settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (key, value),
+            )
+
+
+def get_nas_settings() -> dict[str, str]:
+    with get_connection() as conn:
+        rows = conn.execute("SELECT key, value FROM app_settings WHERE key LIKE 'nas_%'").fetchall()
+        settings = {row["key"]: row["value"] for row in rows}
+    defaults = {
+        "nas_enabled": "0",
+        "nas_host": "192.168.1.131",
+        "nas_check_interval_seconds": "60",
+        "nas_mount_paths": "",
+        "nas_last_ready": "0",
+        "nas_last_host_online": "0",
+        "nas_last_mounts_ok": "0",
+        "nas_last_checked_at": "",
+        "nas_last_error": "",
+        "nas_last_automation_ready": "0",
+    }
+    defaults.update(settings)
+    return defaults
 
 
 def set_schedule_enabled(schedule_id: int, enabled: bool) -> None:
@@ -413,6 +534,7 @@ def list_action_runs(
     source_type: str | None = None,
     source_id: str | None = None,
     schedule_id: int | None = None,
+    trigger_prefix: str | None = None,
     limit: int = 20,
 ) -> list[dict]:
     clauses = []
@@ -426,6 +548,9 @@ def list_action_runs(
     if schedule_id is not None:
         clauses.append("schedule_id = ?")
         params.append(schedule_id)
+    if trigger_prefix:
+        clauses.append("trigger_type LIKE ?")
+        params.append(f"{trigger_prefix}%")
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     params.append(limit)

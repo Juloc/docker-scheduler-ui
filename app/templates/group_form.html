@@ -19,6 +19,23 @@
     <input type="number" min="0" name="delay_seconds" value="{{ group.delay_seconds if group else 5 }}">
   </label>
 
+  <fieldset>
+    <legend>NAS dependency</legend>
+    <p class="form-help">Use this when a group depends on files or mounts from a NAS.</p>
+    <label class="checkbox">
+      <input type="checkbox" name="requires_nas" {% if group and group.requires_nas %}checked{% endif %}>
+      Require NAS before start/restart
+    </label>
+    <label class="checkbox">
+      <input type="checkbox" name="auto_start_on_nas_online" {% if group and group.auto_start_on_nas_online %}checked{% endif %}>
+      Auto-start this group when NAS becomes ready
+    </label>
+    <label class="checkbox">
+      <input type="checkbox" name="auto_stop_on_nas_offline" {% if group and group.auto_stop_on_nas_offline %}checked{% endif %}>
+      Auto-stop this group when NAS goes offline
+    </label>
+  </fieldset>
+
   <h2>Container</h2>
   <div class="table-wrap">
     <table>

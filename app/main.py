@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
-from app import action_service, auth, database, scheduler_service
+from app import action_service, auth, database, nas_service, scheduler_service
 from app.docker_ops import (
     VALID_ACTIONS,
     DockerOperationError,
@@ -18,7 +18,7 @@ from app.docker_ops import (
 
 
 BASE_DIR = Path(__file__).resolve().parent
-ASSET_VERSION = "20260621-1"
+ASSET_VERSION = "20260621-2"
 ACTIONS = ["start", "stop", "restart"]
 WEEKDAYS = [
     ("mon", "Mon"),
@@ -82,6 +82,7 @@ def render(request: Request, template_name: str, context: dict | None = None, st
         "nav_dashboard_class": "active" if current_path == "/" else "",
         "nav_groups_class": "active" if current_path.startswith("/groups") else "",
         "nav_schedules_class": "active" if current_path.startswith("/schedules") else "",
+        "nav_nas_class": "active" if current_path.startswith("/nas") else "",
     }
     if context:
         base_context.update(context)
@@ -272,6 +273,80 @@ def dashboard(request: Request):
     )
 
 
+@app.get("/nas", response_class=HTMLResponse)
+def nas(request: Request):
+    return render(
+        request,
+        "nas.html",
+        {
+            "nas_status": nas_service.current_status(),
+            "auto_start_groups": nas_service.dependent_groups(auto_start_only=True),
+            "auto_stop_groups": nas_service.dependent_groups(auto_stop_only=True),
+            "recent_runs": database.list_action_runs(trigger_prefix="nas-", limit=20),
+        },
+    )
+
+
+@app.post("/nas/settings")
+async def update_nas_settings(request: Request):
+    form = await request.form()
+    enabled = form.get("enabled") == "on"
+    host = (form.get("host") or "").strip()
+    check_interval_seconds = max(10, _safe_int(form.get("check_interval_seconds"), 60))
+    mount_paths_text = str(form.get("mount_paths") or "")
+
+    if enabled and not host:
+        return redirect_to("/nas", error="NAS host is required when NAS checks are enabled.")
+
+    nas_service.update_settings(enabled, host, check_interval_seconds, mount_paths_text)
+    scheduler_service.reload_nas_monitor()
+    return redirect_to("/nas", message="NAS settings were saved.")
+
+
+@app.post("/nas/check")
+def check_nas():
+    status = nas_service.check_status()
+    if not status["enabled"]:
+        return redirect_to("/nas", message="NAS checks are disabled.")
+    if status["ready"]:
+        return redirect_to("/nas", message="NAS is ready.")
+    return redirect_to("/nas", error=status["last_error"] or "NAS is not ready.")
+
+
+@app.post("/nas/start-media")
+def start_nas_media_groups():
+    status = nas_service.check_status()
+    if not status["enabled"]:
+        return redirect_to("/nas", error="NAS checks are disabled.")
+    if not status["ready"]:
+        return redirect_to("/nas", error=status["last_error"] or "NAS is not ready.")
+
+    groups = nas_service.dependent_groups(auto_start_only=True)
+    if not groups:
+        return redirect_to("/nas", message="No groups are marked for NAS auto-start.")
+
+    started = 0
+    errors: list[str] = []
+    for group in groups:
+        try:
+            action_service.start_group_run(
+                group["id"],
+                "start",
+                trigger_type="nas-manual",
+                check_nas=False,
+            )
+            started += 1
+        except DockerOperationError as exc:
+            errors.append(f"{group['name']}: {exc}")
+
+    if errors:
+        return redirect_to(
+            "/nas",
+            error=f"Started {started} group run(s), but some groups failed to queue: {'; '.join(errors)}",
+        )
+    return redirect_to("/nas", message=f"Started {started} NAS-dependent group run(s).")
+
+
 @app.post("/containers/{container_id}/{action}")
 def container_action(container_id: str, action: str):
     if action not in VALID_ACTIONS:
@@ -362,6 +437,9 @@ async def _save_group_from_form(request: Request, group_id: int | None = None):
     name = (form.get("name") or "").strip()
     delay_seconds = max(0, _safe_int(form.get("delay_seconds"), 5))
     selected = form.getlist("containers")
+    requires_nas = form.get("requires_nas") == "on"
+    auto_start_on_nas_online = form.get("auto_start_on_nas_online") == "on"
+    auto_stop_on_nas_offline = form.get("auto_stop_on_nas_offline") == "on"
     containers, _ = _with_docker_containers()
     containers_by_name = _container_map_by_name(containers)
 
@@ -375,13 +453,28 @@ async def _save_group_from_form(request: Request, group_id: int | None = None):
         container_id = container["id"] if container else container_ref
         position = max(1, _safe_int(form.get(f"order_{container_ref}"), index))
         group_containers.append((container_name, container_id, position))
-    group_containers.sort(key=lambda item: item[1])
+    group_containers.sort(key=lambda item: item[2])
 
     try:
         if group_id is None:
-            database.create_group(name, delay_seconds, group_containers)
+            database.create_group(
+                name,
+                delay_seconds,
+                group_containers,
+                requires_nas=requires_nas,
+                auto_start_on_nas_online=auto_start_on_nas_online,
+                auto_stop_on_nas_offline=auto_stop_on_nas_offline,
+            )
             return redirect_to("/groups", message="Group was created.")
-        database.update_group(group_id, name, delay_seconds, group_containers)
+        database.update_group(
+            group_id,
+            name,
+            delay_seconds,
+            group_containers,
+            requires_nas=requires_nas,
+            auto_start_on_nas_online=auto_start_on_nas_online,
+            auto_stop_on_nas_offline=auto_stop_on_nas_offline,
+        )
         return redirect_to("/groups", message="Group was updated.")
     except sqlite3.IntegrityError:
         return redirect_to(
@@ -498,6 +591,7 @@ async def _save_schedule_from_form(request: Request, schedule_id: int | None = N
     time_value = (form.get("time") or "").strip()
     weekdays = ",".join(day for day, _ in WEEKDAYS if day in form.getlist("weekdays"))
     enabled = form.get("enabled") == "on"
+    require_nas = form.get("require_nas") == "on"
     path = "/schedules/new" if schedule_id is None else f"/schedules/{schedule_id}/edit"
 
     try:
@@ -515,11 +609,32 @@ async def _save_schedule_from_form(request: Request, schedule_id: int | None = N
         return redirect_to(path, error=str(exc))
 
     if schedule_id is None:
-        database.create_schedule(name, target_type, target_id, action, hour, minute, weekdays, enabled)
+        database.create_schedule(
+            name,
+            target_type,
+            target_id,
+            action,
+            hour,
+            minute,
+            weekdays,
+            enabled,
+            require_nas=require_nas,
+        )
         scheduler_service.reload_schedules()
         return redirect_to("/schedules", message="Schedule was created.")
 
-    database.update_schedule(schedule_id, name, target_type, target_id, action, hour, minute, weekdays, enabled)
+    database.update_schedule(
+        schedule_id,
+        name,
+        target_type,
+        target_id,
+        action,
+        hour,
+        minute,
+        weekdays,
+        enabled,
+        require_nas=require_nas,
+    )
     scheduler_service.reload_schedules()
     return redirect_to("/schedules", message="Schedule was updated.")
 

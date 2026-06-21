@@ -12,6 +12,11 @@ A small FastAPI web UI for viewing Docker containers, managing ordered container
 - Daily schedules or selected weekdays
 - Manual schedule runs with detailed run logs
 - Lazy log preview on the dashboard
+- Optional NAS guard for groups and schedules:
+  - ping-based NAS reachability checks
+  - optional mount path checks
+  - block start/restart for NAS-dependent groups while NAS is unavailable
+  - auto-start and auto-stop selected groups on NAS status changes
 - SQLite persistence in `/app/data/app.db`
 - Configurable authentication:
   - `AUTH_MODE=basic` for browser Basic Auth
@@ -106,6 +111,31 @@ Groups, schedules, and run logs are stored in SQLite. Mount `/app/data` to keep 
 ## Docker Socket Access
 
 The Docker socket is required so the app can list containers and run start/stop/restart actions. Anyone with access to the UI can perform those Docker actions.
+
+## NAS Guard
+
+NAS checks are configured in the web UI under **NAS**. The app can ping a configured host or IP address and can also verify that configured mount paths exist.
+
+Mount checks only work for paths that are visible inside the `docker-scheduler-ui` container. If you want the app to verify host paths, mount those paths into the app container, for example:
+
+```yaml
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+  - ./data:/app/data
+  - /mnt/media:/mnt/media:ro
+```
+
+Group options:
+
+- **Require NAS before start/restart** skips start or restart actions when NAS is not ready.
+- **Auto-start this group when NAS becomes ready** starts the group when NAS changes from not ready to ready.
+- **Auto-stop this group when NAS goes offline** stops the group when NAS changes from ready to not ready.
+
+Schedule option:
+
+- **Require NAS to be ready before running** skips the schedule when NAS is not ready.
+
+Skipped runs are written to the run log with status `skipped`.
 
 ## Local Development
 

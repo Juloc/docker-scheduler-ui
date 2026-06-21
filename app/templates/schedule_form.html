@@ -66,6 +66,11 @@
     Active
   </label>
 
+  <label class="checkbox">
+    <input type="checkbox" name="require_nas" {% if schedule and schedule.require_nas %}checked{% endif %}>
+    Require NAS to be ready before running
+  </label>
+
   <div class="form-actions">
     <button class="primary" type="submit">Save</button>
     <a class="button secondary" href="/schedules">Cancel</a>

@@ -2,8 +2,11 @@ import threading
 import time
 from typing import Callable
 
-from app import database
+from app import database, nas_service
 from app.docker_ops import DockerOperationError, run_container_action
+
+
+NAS_GATED_GROUP_ACTIONS = {"start", "restart"}
 
 
 def _run_async(target: Callable[[], None]) -> None:
@@ -13,6 +16,10 @@ def _run_async(target: Callable[[], None]) -> None:
 
 def _finish_run_failed(run_id: int, exc: Exception) -> None:
     database.finish_action_run(run_id, "failed", str(exc))
+
+
+def _finish_run_skipped(run_id: int, message: str) -> None:
+    database.finish_action_run(run_id, "skipped", message)
 
 
 def _container_ref(item: dict) -> str:
@@ -44,6 +51,10 @@ def _execute_group_steps(run_id: int, group: dict, action: str) -> None:
             time.sleep(delay_seconds)
 
 
+def _group_requires_nas_gate(group: dict, action: str) -> bool:
+    return bool(group.get("requires_nas")) and action in NAS_GATED_GROUP_ACTIONS
+
+
 def start_container_run(container_ref: str, action: str, background: bool = True) -> int:
     run_id = database.create_action_run(
         source_type="container",
@@ -67,7 +78,13 @@ def start_container_run(container_ref: str, action: str, background: bool = True
     return run_id
 
 
-def start_group_run(group_id: int, action: str, background: bool = True) -> int:
+def start_group_run(
+    group_id: int,
+    action: str,
+    background: bool = True,
+    trigger_type: str = "manual",
+    check_nas: bool = True,
+) -> int:
     group = database.get_group(group_id)
     if not group:
         raise DockerOperationError("Group was not found.")
@@ -77,11 +94,16 @@ def start_group_run(group_id: int, action: str, background: bool = True) -> int:
         source_id=str(group_id),
         target_label=group["name"],
         action=action,
-        trigger_type="manual",
+        trigger_type=trigger_type,
     )
 
     def execute() -> None:
         try:
+            if check_nas and _group_requires_nas_gate(group, action):
+                ready, message = nas_service.require_ready()
+                if not ready:
+                    _finish_run_skipped(run_id, f"NAS is not ready: {message}")
+                    return
             _execute_group_steps(run_id, group, action)
             database.finish_action_run(run_id, "success")
         except Exception as exc:
@@ -110,12 +132,26 @@ def start_schedule_run(schedule_id: int, trigger_type: str, background: bool = T
 
     def execute() -> None:
         try:
-            if schedule["target_type"] == "container":
-                _execute_container_step(run_id, 1, schedule["target_id"], schedule["action"])
-            elif schedule["target_type"] == "group":
+            group = None
+            if schedule["target_type"] == "group":
                 group = database.get_group(int(schedule["target_id"]))
                 if not group:
                     raise DockerOperationError("Schedule group target was not found.")
+
+            if schedule.get("require_nas"):
+                ready, message = nas_service.require_ready()
+                if not ready:
+                    _finish_run_skipped(run_id, f"NAS is not ready: {message}")
+                    return
+            elif group and _group_requires_nas_gate(group, schedule["action"]):
+                ready, message = nas_service.require_ready()
+                if not ready:
+                    _finish_run_skipped(run_id, f"NAS is not ready: {message}")
+                    return
+
+            if schedule["target_type"] == "container":
+                _execute_container_step(run_id, 1, schedule["target_id"], schedule["action"])
+            elif schedule["target_type"] == "group":
                 _execute_group_steps(run_id, group, schedule["action"])
             else:
                 raise DockerOperationError("Invalid schedule target.")

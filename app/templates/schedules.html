@@ -18,6 +18,7 @@
         <th>Action</th>
         <th>Time</th>
         <th>Days</th>
+        <th>NAS</th>
         <th>Status</th>
         <th>Next Run</th>
         <th>Last Error</th>
@@ -32,6 +33,7 @@
         <td>{{ schedule.action }}</td>
         <td>{{ schedule.time_label }}</td>
         <td>{{ schedule.weekdays_label }}</td>
+        <td>{% if schedule.require_nas %}<span class="pill nas-pill">required</span>{% else %}-{% endif %}</td>
         <td>{% if schedule.enabled %}<span class="pill ok">active</span>{% else %}<span class="pill">inactive</span>{% endif %}</td>
         <td>{{ schedule.next_run }}</td>
         <td>{% if schedule.last_error %}<span class="warning">{{ schedule.last_error }}</span>{% else %}-{% endif %}</td>
@@ -44,7 +46,7 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="9" class="empty">No schedules created yet.</td>
+        <td colspan="10" class="empty">No schedules created yet.</td>
       </tr>
       {% endfor %}
     </tbody>
