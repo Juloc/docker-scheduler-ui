@@ -1,44 +1,25 @@
 # docker-scheduler-ui
 
-Simple FastAPI Weboberflaeche fuer Docker-Container, Gruppen und Start-/Stop-Zeitplaene.
+A small FastAPI web UI for viewing Docker containers, managing ordered container groups, and scheduling start/stop/restart actions.
 
-## Funktionen
+## Features
 
-- Dashboard mit allen Docker-Containern, auch gestoppten
-- Aktionen fuer einzelne Container: Start, Stop, Restart, Logs
-- Gruppen mit Container-Reihenfolge und Wartezeit zwischen Containern
-- Gruppenaktionen: Start, Stop, Restart
-- Zeitplaene fuer einzelne Container oder Gruppen
-- Taegliche Zeitplaene oder bestimmte Wochentage
-- Aktiv/deaktiviert-Schalter fuer Zeitplaene
-- Letzte 100 Logzeilen pro Container
-- Basic Auth ueber `APP_USER` und `APP_PASSWORD`
-- SQLite Persistenz in `/app/data/app.db`
+- Lists all Docker containers, including stopped containers
+- Container actions: start, stop, restart, logs
+- Ordered container groups with delay between containers
+- Group actions with per-container execution logs
+- Schedules for containers or groups
+- Daily schedules or selected weekdays
+- Manual schedule runs with detailed run logs
+- Lazy log preview on the dashboard
+- SQLite persistence in `/app/data/app.db`
+- Configurable authentication:
+  - `AUTH_MODE=basic` for browser Basic Auth
+  - `AUTH_MODE=form` for the built-in login page
 
-Es gibt bewusst keine destruktiven Docker-Funktionen wie `docker rm`, Volume-Loeschung, Image-Prune oder System-Prune.
+The app intentionally does not expose destructive Docker operations such as container removal, volume deletion, image prune, or system prune.
 
-## Start mit Docker Compose
-
-```bash
-docker compose up -d --build
-```
-
-Danach ist die UI erreichbar unter:
-
-```text
-http://localhost:8099
-```
-
-Standard-Login aus `docker-compose.yml`:
-
-```text
-Benutzer: admin
-Passwort: change-me
-```
-
-Bitte das Passwort vor produktiver Nutzung aendern.
-
-## docker-compose.yml
+## Docker Compose
 
 ```yaml
 services:
@@ -52,26 +33,32 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/app/data
     environment:
+      AUTH_MODE: basic
       APP_USER: admin
       APP_PASSWORD: change-me
+      APP_SECRET: change-this-secret
 ```
 
-Der Docker-Socket ist notwendig, damit die App Container lesen und starten/stoppen/restarten kann. Wer Zugriff auf diese UI hat, kann damit Docker-Aktionen ausfuehren.
+Start it with:
 
-## Image fuer Portainer GitOps
+```bash
+docker compose up -d --build
+```
 
-Dieses Repository enthaelt einen GitHub-Actions-Workflow unter `.github/workflows/docker-publish.yml`. Bei Push auf `main` wird ein Image nach GitHub Container Registry gebaut:
+Open:
 
 ```text
-ghcr.io/juloc/docker-scheduler-ui:latest
+http://localhost:8099
 ```
 
-Fuer ein separates Compose-/GitOps-Repository kann die Datei `docker-compose.image.yml` als Vorlage verwendet werden:
+## Image-based GitOps Compose
+
+If you publish the image to a registry, use an image-only Compose file in a separate GitOps repository:
 
 ```yaml
 services:
   docker-scheduler-ui:
-    image: ghcr.io/juloc/docker-scheduler-ui:latest
+    image: ghcr.io/<owner>/docker-scheduler-ui:latest
     container_name: docker-scheduler-ui
     restart: unless-stopped
     ports:
@@ -80,17 +67,41 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/docker-scheduler-ui/data:/app/data
     environment:
+      AUTH_MODE: ${AUTH_MODE:-basic}
       APP_USER: ${APP_USER}
       APP_PASSWORD: ${APP_PASSWORD}
+      APP_SECRET: ${APP_SECRET:-change-this-secret}
 ```
 
-In Portainer die Variablen `APP_USER` und `APP_PASSWORD` im Stack setzen. Auf dem Docker-Host muss der Datenordner existieren:
+Create the host data directory before deploying:
 
 ```bash
 sudo mkdir -p /opt/docker-scheduler-ui/data
 ```
 
-## Lokale Entwicklung
+## Configuration
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `APP_USER` | `admin` | Login username |
+| `APP_PASSWORD` | `change-me` | Login password |
+| `AUTH_MODE` | `basic` | `basic` for browser auth, `form` for the built-in login page |
+| `APP_SECRET` | `APP_PASSWORD` value | Secret used to sign form-login session cookies |
+| `AUTH_SESSION_SECONDS` | `43200` | Form-login session duration in seconds |
+| `AUTH_COOKIE_SECURE` | `false` | Set to `true` when serving the app over HTTPS |
+| `APP_DB` | `/app/data/app.db` | SQLite database path |
+
+Change the default password before exposing the UI.
+
+## Persistence
+
+Groups, schedules, and run logs are stored in SQLite. Mount `/app/data` to keep data across container restarts.
+
+## Docker Socket Access
+
+The Docker socket is required so the app can list containers and run start/stop/restart actions. Anyone with access to the UI can perform those Docker actions.
+
+## Local Development
 
 ```bash
 python -m venv .venv
@@ -99,7 +110,7 @@ pip install -r requirements.txt
 APP_DB=./data/app.db APP_USER=admin APP_PASSWORD=change-me uvicorn app.main:app --reload --port 8099
 ```
 
-Unter Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -110,7 +121,3 @@ $env:APP_USER="admin"
 $env:APP_PASSWORD="change-me"
 uvicorn app.main:app --reload --port 8099
 ```
-
-## Persistenz
-
-Gruppen und Zeitplaene liegen in SQLite unter `/app/data/app.db`. Im Compose-Setup wird `./data` nach `/app/data` gemountet, damit die Daten nach einem Neustart erhalten bleiben.

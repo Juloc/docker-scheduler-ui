@@ -5,15 +5,15 @@
   <div>
     <h1>Logs</h1>
     {% if container %}
-    <p>Letzte 100 Logzeilen fuer {{ container.name }}.</p>
+    <p>Last 100 log lines for {{ container.name }}.</p>
     {% endif %}
   </div>
-  <a class="button secondary" href="/">Zurueck</a>
+  <a class="button secondary" href="/">Back</a>
 </section>
 
 {% if logs %}
 <pre class="logs">{{ logs }}</pre>
 {% elif not docker_error %}
-<p class="empty">Keine Logs vorhanden.</p>
+<p class="empty">No logs available.</p>
 {% endif %}
 {% endblock %}

@@ -1081,3 +1081,83 @@ tr[hidden] {
     flex-direction: column;
   }
 }
+
+.status-success {
+  background: #ecfdf3;
+  color: #15803d;
+}
+
+.status-failed {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.run-log-panel {
+  margin-top: 18px;
+}
+
+.run-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.run-summary > div {
+  padding: 12px;
+  border: 1px solid #d9e2ee;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.logout-form {
+  margin: 0;
+}
+
+.logout-form button {
+  border-color: rgb(255 255 255 / 14%);
+  background: rgb(255 255 255 / 8%);
+  color: #e5e7eb;
+}
+
+.login-page {
+  min-height: 100vh;
+  background: radial-gradient(circle at top left, #dbeafe 0, transparent 420px), #0f172a;
+}
+
+.login-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: min(460px, 100%);
+  padding: 28px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 28%);
+}
+
+.login-brand {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 22px;
+}
+
+.login-brand h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+}
+
+.login-brand p {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .run-summary {
+    grid-template-columns: 1fr;
+  }
+}

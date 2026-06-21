@@ -3,10 +3,10 @@
 {% block content %}
 <section class="section-header">
   <div>
-    <h1>Gruppen</h1>
-    <p>Container in Reihenfolge starten, stoppen oder neu starten.</p>
+    <h1>Groups</h1>
+    <p>Run containers in a defined order with a delay between steps.</p>
   </div>
-  <a class="button primary" href="/groups/new">Gruppe anlegen</a>
+  <a class="button primary" href="/groups/new">Create Group</a>
 </section>
 
 <div class="stack">
@@ -15,14 +15,14 @@
     <div class="panel-header">
       <div>
         <h2>{{ group.name }}</h2>
-        <p>{{ group.containers|length }} Container, {{ group.delay_seconds }}s Wartezeit</p>
+        <p>{{ group.containers|length }} containers, {{ group.delay_seconds }}s delay</p>
       </div>
       <div class="actions">
         <form method="post" action="/groups/{{ group.id }}/start"><button>Start</button></form>
-        <form method="post" action="/groups/{{ group.id }}/stop" onsubmit="return confirm('Gruppe wirklich stoppen?');"><button>Stop</button></form>
-        <form method="post" action="/groups/{{ group.id }}/restart" onsubmit="return confirm('Gruppe wirklich neu starten?');"><button>Restart</button></form>
-        <a class="button secondary" href="/groups/{{ group.id }}/edit">Bearbeiten</a>
-        <form method="post" action="/groups/{{ group.id }}/delete" onsubmit="return confirm('Gruppe wirklich loeschen? Zeitplaene fuer diese Gruppe werden ebenfalls geloescht.');"><button class="danger">Loeschen</button></form>
+        <form method="post" action="/groups/{{ group.id }}/stop" onsubmit="return confirm('Stop this group?');"><button>Stop</button></form>
+        <form method="post" action="/groups/{{ group.id }}/restart" onsubmit="return confirm('Restart this group?');"><button>Restart</button></form>
+        <a class="button secondary" href="/groups/{{ group.id }}/edit">Edit</a>
+        <form method="post" action="/groups/{{ group.id }}/delete" onsubmit="return confirm('Delete this group? Schedules for this group will also be deleted.');"><button class="danger">Delete</button></form>
       </div>
     </div>
 
@@ -30,15 +30,54 @@
       {% for container in group.containers %}
       <li>
         <span>{{ container.position }}. {{ container.display_name }}</span>
-        {% if container.missing %}<span class="warning">nicht gefunden</span>{% endif %}
+        {% if container.missing %}<span class="warning">not found</span>{% endif %}
       </li>
       {% else %}
-      <li class="empty">Keine Container in dieser Gruppe.</li>
+      <li class="empty">No containers in this group.</li>
       {% endfor %}
     </ol>
   </section>
   {% else %}
-  <p class="empty">Noch keine Gruppen angelegt.</p>
+  <p class="empty">No groups created yet.</p>
   {% endfor %}
 </div>
+
+<section class="panel run-log-panel">
+  <div class="panel-header">
+    <div>
+      <h2>Recent Group Runs</h2>
+      <p>Manual group actions and their current status.</p>
+    </div>
+  </div>
+  {% if recent_runs %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Started</th>
+          <th>Group</th>
+          <th>Action</th>
+          <th>Trigger</th>
+          <th>Status</th>
+          <th>Log</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in recent_runs %}
+        <tr>
+          <td>{{ run.started_at }}</td>
+          <td>{{ run.target_label }}</td>
+          <td>{{ run.action }}</td>
+          <td>{{ run.trigger_type }}</td>
+          <td><span class="pill status-{{ run.status }}">{{ run.status }}</span></td>
+          <td><a class="button secondary" href="/runs/{{ run.id }}">Open</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No group runs yet.</p>
+  {% endif %}
+</section>
 {% endblock %}

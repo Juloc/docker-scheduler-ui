@@ -44,6 +44,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 group_id INTEGER NOT NULL,
                 container_id TEXT NOT NULL,
+                container_name TEXT,
                 position INTEGER NOT NULL,
                 FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
                 UNIQUE (group_id, container_id)
@@ -64,8 +65,43 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS action_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_type TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                target_label TEXT NOT NULL,
+                action TEXT NOT NULL,
+                trigger_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                schedule_id INTEGER,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                error TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS action_run_steps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                position INTEGER NOT NULL,
+                target_type TEXT NOT NULL,
+                target_name TEXT NOT NULL,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL,
+                message TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                FOREIGN KEY (run_id) REFERENCES action_runs(id) ON DELETE CASCADE
+            );
             """
         )
+        _ensure_column(conn, "group_containers", "container_name", "TEXT")
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def list_groups() -> list[dict]:
@@ -106,20 +142,20 @@ def get_group(group_id: int) -> dict | None:
 def _replace_group_containers(
     conn: sqlite3.Connection,
     group_id: int,
-    containers: list[tuple[str, int]],
+    containers: list[tuple[str, str, int]],
 ) -> None:
     conn.execute("DELETE FROM group_containers WHERE group_id = ?", (group_id,))
-    for index, (container_id, position) in enumerate(containers, start=1):
+    for index, (container_name, container_id, position) in enumerate(containers, start=1):
         conn.execute(
             """
-            INSERT INTO group_containers (group_id, container_id, position)
-            VALUES (?, ?, ?)
+            INSERT INTO group_containers (group_id, container_id, container_name, position)
+            VALUES (?, ?, ?, ?)
             """,
-            (group_id, container_id, position or index),
+            (group_id, container_id, container_name, position or index),
         )
 
 
-def create_group(name: str, delay_seconds: int, containers: list[tuple[str, int]]) -> int:
+def create_group(name: str, delay_seconds: int, containers: list[tuple[str, str, int]]) -> int:
     now = _now()
     with get_connection() as conn:
         cursor = conn.execute(
@@ -138,7 +174,7 @@ def update_group(
     group_id: int,
     name: str,
     delay_seconds: int,
-    containers: list[tuple[str, int]],
+    containers: list[tuple[str, str, int]],
 ) -> None:
     with get_connection() as conn:
         conn.execute(
@@ -158,6 +194,14 @@ def delete_group(group_id: int) -> None:
         conn.execute(
             "DELETE FROM schedules WHERE target_type = 'group' AND target_id = ?",
             (str(group_id),),
+        )
+
+
+def set_group_container_name(group_container_id: int, container_name: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE group_containers SET container_name = ? WHERE id = ?",
+            (container_name, group_container_id),
         )
 
 
@@ -276,4 +320,124 @@ def mark_schedule_run(schedule_id: int, error: str | None) -> None:
             WHERE id = ?
             """,
             (_now(), error, _now(), schedule_id),
+        )
+
+
+def create_action_run(
+    source_type: str,
+    source_id: str,
+    target_label: str,
+    action: str,
+    trigger_type: str,
+    schedule_id: int | None = None,
+) -> int:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO action_runs (
+                source_type, source_id, target_label, action, trigger_type,
+                status, schedule_id, started_at
+            )
+            VALUES (?, ?, ?, ?, ?, 'running', ?, ?)
+            """,
+            (source_type, source_id, target_label, action, trigger_type, schedule_id, _now()),
+        )
+        return int(cursor.lastrowid)
+
+
+def finish_action_run(run_id: int, status: str, error: str | None = None) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE action_runs
+            SET status = ?, error = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (status, error, _now(), run_id),
+        )
+
+
+def create_action_step(
+    run_id: int,
+    position: int,
+    target_type: str,
+    target_name: str,
+    action: str,
+) -> int:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO action_run_steps (
+                run_id, position, target_type, target_name, action,
+                status, started_at
+            )
+            VALUES (?, ?, ?, ?, ?, 'running', ?)
+            """,
+            (run_id, position, target_type, target_name, action, _now()),
+        )
+        return int(cursor.lastrowid)
+
+
+def finish_action_step(step_id: int, status: str, message: str | None = None) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE action_run_steps
+            SET status = ?, message = ?, finished_at = ?
+            WHERE id = ?
+            """,
+            (status, message, _now(), step_id),
+        )
+
+
+def get_action_run(run_id: int) -> dict | None:
+    with get_connection() as conn:
+        return _row(conn.execute("SELECT * FROM action_runs WHERE id = ?", (run_id,)).fetchone())
+
+
+def get_action_run_steps(run_id: int) -> list[dict]:
+    with get_connection() as conn:
+        return _rows(
+            conn.execute(
+                """
+                SELECT * FROM action_run_steps
+                WHERE run_id = ?
+                ORDER BY position ASC, id ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        )
+
+
+def list_action_runs(
+    source_type: str | None = None,
+    source_id: str | None = None,
+    schedule_id: int | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    clauses = []
+    params: list[object] = []
+    if source_type:
+        clauses.append("source_type = ?")
+        params.append(source_type)
+    if source_id:
+        clauses.append("source_id = ?")
+        params.append(source_id)
+    if schedule_id is not None:
+        clauses.append("schedule_id = ?")
+        params.append(schedule_id)
+
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(limit)
+    with get_connection() as conn:
+        return _rows(
+            conn.execute(
+                f"""
+                SELECT * FROM action_runs
+                {where}
+                ORDER BY started_at DESC, id DESC
+                LIMIT ?
+                """,
+                tuple(params),
+            ).fetchall()
         )

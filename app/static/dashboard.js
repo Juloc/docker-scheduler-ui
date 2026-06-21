@@ -65,7 +65,7 @@
       return;
     }
 
-    output.textContent = "Lade Log-Vorschau...";
+    output.textContent = "Loading log preview...";
     output.dataset.loaded = "false";
 
     try {
@@ -73,11 +73,11 @@
         headers: { Accept: "text/plain" },
       });
       const text = await response.text();
-      output.textContent = text || "Keine Logs vorhanden.";
+      output.textContent = text || "No logs available.";
       output.dataset.loaded = response.ok ? "true" : "false";
       output.classList.toggle("has-error", !response.ok);
     } catch (error) {
-      output.textContent = `Fehler beim Laden der Log-Vorschau: ${error}`;
+      output.textContent = `Failed to load log preview: ${error}`;
       output.dataset.loaded = "false";
       output.classList.add("has-error");
     }

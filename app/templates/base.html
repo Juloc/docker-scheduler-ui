@@ -16,11 +16,16 @@
           <small>Docker scheduler</small>
         </span>
       </a>
-      <nav class="nav-links" aria-label="Hauptnavigation">
+      <nav class="nav-links" aria-label="Main navigation">
         <a class="{{ nav_dashboard_class }}" href="/">Dashboard</a>
-        <a class="{{ nav_groups_class }}" href="/groups">Gruppen</a>
-        <a class="{{ nav_schedules_class }}" href="/schedules">Zeitplaene</a>
+        <a class="{{ nav_groups_class }}" href="/groups">Groups</a>
+        <a class="{{ nav_schedules_class }}" href="/schedules">Schedules</a>
       </nav>
+      {% if auth_mode == 'form' %}
+      <form class="logout-form" method="post" action="/logout">
+        <button type="submit">Logout</button>
+      </form>
+      {% endif %}
     </div>
   </header>
 

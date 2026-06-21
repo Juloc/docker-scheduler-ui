@@ -3,10 +3,10 @@
 {% block content %}
 <section class="section-header">
   <div>
-    <h1>Zeitplaene</h1>
-    <p>Geplante Start-, Stop- und Restart-Aktionen.</p>
+    <h1>Schedules</h1>
+    <p>Planned start, stop, and restart actions.</p>
   </div>
-  <a class="button primary" href="/schedules/new">Zeitplan anlegen</a>
+  <a class="button primary" href="/schedules/new">Create Schedule</a>
 </section>
 
 <div class="table-wrap">
@@ -14,14 +14,14 @@
     <thead>
       <tr>
         <th>Name</th>
-        <th>Ziel</th>
-        <th>Aktion</th>
-        <th>Zeit</th>
-        <th>Tage</th>
+        <th>Target</th>
+        <th>Action</th>
+        <th>Time</th>
+        <th>Days</th>
         <th>Status</th>
-        <th>Naechster Lauf</th>
-        <th>Letzter Fehler</th>
-        <th>Aktionen</th>
+        <th>Next Run</th>
+        <th>Last Error</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -32,21 +32,63 @@
         <td>{{ schedule.action }}</td>
         <td>{{ schedule.time_label }}</td>
         <td>{{ schedule.weekdays_label }}</td>
-        <td>{% if schedule.enabled %}<span class="pill ok">aktiv</span>{% else %}<span class="pill">inaktiv</span>{% endif %}</td>
+        <td>{% if schedule.enabled %}<span class="pill ok">active</span>{% else %}<span class="pill">inactive</span>{% endif %}</td>
         <td>{{ schedule.next_run }}</td>
         <td>{% if schedule.last_error %}<span class="warning">{{ schedule.last_error }}</span>{% else %}-{% endif %}</td>
         <td class="actions">
-          <form method="post" action="/schedules/{{ schedule.id }}/toggle"><button>{% if schedule.enabled %}Deaktivieren{% else %}Aktivieren{% endif %}</button></form>
-          <a class="button secondary" href="/schedules/{{ schedule.id }}/edit">Bearbeiten</a>
-          <form method="post" action="/schedules/{{ schedule.id }}/delete" onsubmit="return confirm('Zeitplan wirklich loeschen?');"><button class="danger">Loeschen</button></form>
+          <form method="post" action="/schedules/{{ schedule.id }}/run"><button class="primary">Run Now</button></form>
+          <form method="post" action="/schedules/{{ schedule.id }}/toggle"><button>{% if schedule.enabled %}Disable{% else %}Enable{% endif %}</button></form>
+          <a class="button secondary" href="/schedules/{{ schedule.id }}/edit">Edit</a>
+          <form method="post" action="/schedules/{{ schedule.id }}/delete" onsubmit="return confirm('Delete this schedule?');"><button class="danger">Delete</button></form>
         </td>
       </tr>
       {% else %}
       <tr>
-        <td colspan="9" class="empty">Keine Zeitplaene angelegt.</td>
+        <td colspan="9" class="empty">No schedules created yet.</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+<section class="panel run-log-panel">
+  <div class="panel-header">
+    <div>
+      <h2>Schedule Run Log</h2>
+      <p>Scheduled and manual schedule executions with detailed status.</p>
+    </div>
+  </div>
+  {% if recent_runs %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Started</th>
+          <th>Schedule</th>
+          <th>Action</th>
+          <th>Trigger</th>
+          <th>Status</th>
+          <th>Error</th>
+          <th>Log</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in recent_runs %}
+        <tr>
+          <td>{{ run.started_at }}</td>
+          <td>{{ run.target_label }}</td>
+          <td>{{ run.action }}</td>
+          <td>{{ run.trigger_type }}</td>
+          <td><span class="pill status-{{ run.status }}">{{ run.status }}</span></td>
+          <td>{% if run.error %}<span class="warning">{{ run.error }}</span>{% else %}-{% endif %}</td>
+          <td><a class="button secondary" href="/runs/{{ run.id }}">Open</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No schedule runs yet.</p>
+  {% endif %}
+</section>
 {% endblock %}

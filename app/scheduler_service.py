@@ -1,8 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app import database
-from app.docker_ops import DockerOperationError, run_container_action, run_group_action
+from app import action_service, database
 
 
 scheduler = BackgroundScheduler()
@@ -52,13 +51,9 @@ def run_schedule(schedule_id: int) -> None:
         return
 
     try:
-        if schedule["target_type"] == "container":
-            run_container_action(schedule["target_id"], schedule["action"])
-        elif schedule["target_type"] == "group":
-            run_group_action(int(schedule["target_id"]), schedule["action"])
-        else:
-            raise DockerOperationError("Ungueltiges Zeitplan-Ziel.")
-        database.mark_schedule_run(schedule_id, None)
+        run_id = action_service.start_schedule_run(schedule_id, trigger_type="schedule", background=False)
+        run = database.get_action_run(run_id)
+        database.mark_schedule_run(schedule_id, run["error"] if run and run["status"] == "failed" else None)
     except Exception as exc:  # APScheduler must keep running even if one Docker action fails.
         database.mark_schedule_run(schedule_id, str(exc))
 

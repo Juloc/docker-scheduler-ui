@@ -18,7 +18,7 @@ def _client() -> docker.DockerClient:
     try:
         return docker.from_env()
     except DockerException as exc:
-        raise DockerOperationError(f"Docker client konnte nicht erstellt werden: {exc}") from exc
+        raise DockerOperationError(f"Could not create Docker client: {exc}") from exc
 
 
 def _close_client(client: docker.DockerClient | None) -> None:
@@ -89,7 +89,7 @@ def list_containers() -> list[dict]:
         containers = client.containers.list(all=True)
         return sorted((_container_info(container) for container in containers), key=lambda item: item["name"])
     except DockerException as exc:
-        raise DockerOperationError(f"Docker-Container konnten nicht gelesen werden: {exc}") from exc
+        raise DockerOperationError(f"Could not read Docker containers: {exc}") from exc
     finally:
         _close_client(client)
 
@@ -99,9 +99,9 @@ def get_container_info(container_id: str) -> dict:
     try:
         return _container_info(client.containers.get(container_id))
     except NotFound as exc:
-        raise DockerOperationError("Container wurde nicht gefunden.") from exc
+        raise DockerOperationError("Container was not found.") from exc
     except DockerException as exc:
-        raise DockerOperationError(f"Container konnte nicht gelesen werden: {exc}") from exc
+        raise DockerOperationError(f"Could not read container: {exc}") from exc
     finally:
         _close_client(client)
 
@@ -112,7 +112,7 @@ def run_container_action(
     client: docker.DockerClient | None = None,
 ) -> str:
     if action not in VALID_ACTIONS:
-        raise DockerOperationError("Ungueltige Aktion.")
+        raise DockerOperationError("Invalid action.")
 
     owns_client = client is None
     active_client = client or _client()
@@ -124,14 +124,14 @@ def run_container_action(
             container.stop()
         elif action == "restart":
             container.restart()
-        return f"{action} fuer {container.name} ausgefuehrt."
+        return f"{action} completed for {container.name}."
     except NotFound as exc:
-        raise DockerOperationError("Container wurde nicht gefunden.") from exc
+        raise DockerOperationError("Container was not found.") from exc
     except APIError as exc:
         explanation = getattr(exc, "explanation", None) or str(exc)
-        raise DockerOperationError(f"Docker-Fehler: {explanation}") from exc
+        raise DockerOperationError(f"Docker error: {explanation}") from exc
     except DockerException as exc:
-        raise DockerOperationError(f"Docker-Fehler: {exc}") from exc
+        raise DockerOperationError(f"Docker error: {exc}") from exc
     finally:
         if owns_client:
             _close_client(active_client)
@@ -139,13 +139,13 @@ def run_container_action(
 
 def run_group_action(group_id: int, action: str) -> str:
     if action not in VALID_ACTIONS:
-        raise DockerOperationError("Ungueltige Aktion.")
+        raise DockerOperationError("Invalid action.")
 
     group = database.get_group(group_id)
     if not group:
-        raise DockerOperationError("Gruppe wurde nicht gefunden.")
+        raise DockerOperationError("Group was not found.")
     if not group["containers"]:
-        raise DockerOperationError("Gruppe enthaelt keine Container.")
+        raise DockerOperationError("Group contains no containers.")
 
     client = _client()
     messages: list[str] = []
@@ -153,7 +153,8 @@ def run_group_action(group_id: int, action: str) -> str:
 
     try:
         for index, item in enumerate(group["containers"]):
-            messages.append(run_container_action(item["container_id"], action, client=client))
+            container_ref = item.get("container_name") or item["container_id"]
+            messages.append(run_container_action(container_ref, action, client=client))
             if delay_seconds and index < len(group["containers"]) - 1:
                 time.sleep(delay_seconds)
         return " ".join(messages)
@@ -168,11 +169,11 @@ def get_container_logs(container_id: str, tail: int = 100) -> tuple[dict, str]:
         logs = container.logs(tail=tail, stdout=True, stderr=True)
         return _container_info(container), logs.decode("utf-8", errors="replace")
     except NotFound as exc:
-        raise DockerOperationError("Container wurde nicht gefunden.") from exc
+        raise DockerOperationError("Container was not found.") from exc
     except APIError as exc:
         explanation = getattr(exc, "explanation", None) or str(exc)
-        raise DockerOperationError(f"Docker-Logs konnten nicht gelesen werden: {explanation}") from exc
+        raise DockerOperationError(f"Could not read Docker logs: {explanation}") from exc
     except DockerException as exc:
-        raise DockerOperationError(f"Docker-Logs konnten nicht gelesen werden: {exc}") from exc
+        raise DockerOperationError(f"Could not read Docker logs: {exc}") from exc
     finally:
         _close_client(client)

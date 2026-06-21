@@ -9,5 +9,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/app/data
     environment:
+      AUTH_MODE: basic
       APP_USER: admin
       APP_PASSWORD: change-me
+      APP_SECRET: change-this-secret

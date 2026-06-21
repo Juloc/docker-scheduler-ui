@@ -4,7 +4,7 @@
 <section class="dashboard-hero">
   <div>
     <h1>Container</h1>
-    <p>Uebersicht, Aktionen und Logs fuer alle Docker-Container.</p>
+    <p>Overview, actions, and logs for all Docker containers.</p>
   </div>
   <div class="stats-grid">
     <div class="stat-card">
@@ -20,24 +20,24 @@
       <strong>{{ stats.stopped }}</strong>
     </div>
     <div class="stat-card">
-      <span>Mit Ports</span>
+      <span>With Ports</span>
       <strong>{{ stats.with_ports }}</strong>
     </div>
   </div>
 </section>
 
-<section class="dashboard-toolbar" aria-label="Container-Filter">
+<section class="dashboard-toolbar" aria-label="Container filter">
   <label class="search-box">
-    <span>Suchen</span>
+    <span>Search</span>
     <input id="container-search" type="search" placeholder="Name, Image, Status..." autocomplete="off">
   </label>
-  <div class="status-tabs" aria-label="Statusfilter">
-    <button type="button" class="active" data-status-filter="all">Alle</button>
+  <div class="status-tabs" aria-label="Status filter">
+    <button type="button" class="active" data-status-filter="all">All</button>
     <button type="button" data-status-filter="running">Running</button>
     <button type="button" data-status-filter="stopped">Stopped</button>
     <button type="button" data-status-filter="unhealthy">Unhealthy</button>
   </div>
-  <span class="visible-count"><span id="visible-container-count">{{ stats.total }}</span> sichtbar</span>
+  <span class="visible-count"><span id="visible-container-count">{{ stats.total }}</span> visible</span>
 </section>
 
 <div class="table-wrap dashboard-table">
@@ -57,7 +57,7 @@
         <th>Status</th>
         <th>Health</th>
         <th>Restart Policy</th>
-        <th>Aktionen</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -93,7 +93,7 @@
       <tr class="container-detail-row" data-detail-for="{{ container.id }}">
         <td colspan="6">
           <details class="container-details" data-container-id="{{ container.id }}">
-            <summary>Details, Ports und Log-Vorschau</summary>
+            <summary>Details, ports, and log preview</summary>
             <div class="detail-panel">
               <div class="detail-grid">
                 <div>
@@ -108,12 +108,12 @@
               <div class="log-preview">
                 <div class="log-preview-header">
                   <div>
-                    <span class="detail-label">Log-Vorschau</span>
-                    <strong>Letzte 30 Zeilen</strong>
+                    <span class="detail-label">Log preview</span>
+                    <strong>Last 30 lines</strong>
                   </div>
-                  <button type="button" class="secondary refresh-log-preview" data-container-id="{{ container.id }}">Neu laden</button>
+                  <button type="button" class="secondary refresh-log-preview" data-container-id="{{ container.id }}">Reload</button>
                 </div>
-                <pre class="log-preview-output" data-log-output="{{ container.id }}">Noch nicht geladen.</pre>
+                <pre class="log-preview-output" data-log-output="{{ container.id }}">Not loaded yet.</pre>
               </div>
             </div>
           </details>
@@ -121,12 +121,51 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="6" class="empty">Keine Container gefunden.</td>
+        <td colspan="6" class="empty">No containers found.</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+<section class="panel run-log-panel">
+  <div class="panel-header">
+    <div>
+      <h2>Recent Container Runs</h2>
+      <p>Manual container actions with detailed status.</p>
+    </div>
+  </div>
+  {% if recent_runs %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Started</th>
+          <th>Container</th>
+          <th>Action</th>
+          <th>Status</th>
+          <th>Error</th>
+          <th>Log</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in recent_runs %}
+        <tr>
+          <td>{{ run.started_at }}</td>
+          <td>{{ run.target_label }}</td>
+          <td>{{ run.action }}</td>
+          <td><span class="pill status-{{ run.status }}">{{ run.status }}</span></td>
+          <td>{% if run.error %}<span class="warning">{{ run.error }}</span>{% else %}-{% endif %}</td>
+          <td><a class="button secondary" href="/runs/{{ run.id }}">Open</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No container runs yet.</p>
+  {% endif %}
+</section>
 {% endblock %}
 
 {% block scripts %}
