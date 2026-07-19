@@ -1,24 +1,29 @@
+from __future__ import annotations
+
 import sqlite3
 from contextlib import asynccontextmanager
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi import FastAPI, Request, UploadFile
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
-from app import action_service, auth, database, nas_service, scheduler_service
-from app.docker_ops import (
-    VALID_ACTIONS,
-    DockerOperationError,
-    get_container_logs,
-    list_containers,
+from app import (
+    action_service,
+    auth,
+    config_service,
+    database,
+    nas_service,
+    notification_service,
+    scheduler_service,
 )
+from app.docker_ops import VALID_ACTIONS, DockerOperationError, get_container_logs, list_containers
+from app.version import APP_VERSION, ASSET_VERSION, BUILD_COMMIT
 
 
 BASE_DIR = Path(__file__).resolve().parent
-ASSET_VERSION = "20260621-3"
 ACTIONS = ["start", "stop", "restart"]
 WEEKDAYS = [
     ("mon", "Mon"),
@@ -30,6 +35,12 @@ WEEKDAYS = [
     ("sun", "Sun"),
 ]
 WEEKDAY_LABELS = dict(WEEKDAYS)
+WEBHOOK_EVENTS = [
+    ("run_failed", "Run failed"),
+    ("nas_online", "NAS online"),
+    ("nas_offline", "NAS offline"),
+    ("wol_failed", "Wake-on-LAN failed"),
+]
 
 
 @asynccontextmanager
@@ -49,6 +60,17 @@ app = FastAPI(
 )
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+@app.middleware("http")
+async def same_origin_guard(request: Request, call_next):
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        origin = request.headers.get("origin")
+        if origin:
+            parsed = urlparse(origin)
+            if parsed.netloc and parsed.netloc != request.url.netloc:
+                return PlainTextResponse("Cross-origin state change rejected.", status_code=403)
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -76,6 +98,8 @@ def render(request: Request, template_name: str, context: dict | None = None, st
     base_context = {
         "request": request,
         "app_name": "docker-scheduler-ui",
+        "app_version": APP_VERSION,
+        "build_commit": BUILD_COMMIT,
         "asset_version": ASSET_VERSION,
         "auth_mode": auth.get_auth_mode(),
         "message": request.query_params.get("message"),
@@ -84,6 +108,8 @@ def render(request: Request, template_name: str, context: dict | None = None, st
         "nav_groups_class": "active" if current_path.startswith("/groups") else "",
         "nav_schedules_class": "active" if current_path.startswith("/schedules") else "",
         "nav_nas_class": "active" if current_path.startswith("/nas") else "",
+        "nav_logs_class": "active" if current_path.startswith("/logs") or current_path.startswith("/runs") else "",
+        "nav_settings_class": "active" if current_path.startswith("/settings") else "",
     }
     if context:
         base_context.update(context)
@@ -117,12 +143,12 @@ async def login_submit(request: Request):
     form = await request.form()
     username = (form.get("username") or "").strip()
     password = form.get("password") or ""
-    next_path = form.get("next") or "/"
-    if not str(next_path).startswith("/"):
+    next_path = str(form.get("next") or "/")
+    if not next_path.startswith("/") or next_path.startswith("//"):
         next_path = "/"
 
     if auth.verify_credentials(username, password):
-        response = RedirectResponse(str(next_path), status_code=303)
+        response = RedirectResponse(next_path, status_code=303)
         auth.set_session_cookie(response, username)
         return response
 
@@ -147,11 +173,16 @@ def logout():
     return response
 
 
-def _safe_int(value: str | None, default: int = 0) -> int:
+def _safe_int(value: object, default: int = 0) -> int:
     try:
-        return int(value or default)
+        return int(value if value not in {None, ""} else default)
     except (TypeError, ValueError):
         return default
+
+
+def _optional_int(value: object) -> int | None:
+    parsed = _safe_int(value, 0)
+    return parsed if parsed > 0 else None
 
 
 def _container_map(containers: list[dict]) -> dict[str, dict]:
@@ -173,13 +204,12 @@ def _dashboard_stats(containers: list[dict]) -> dict:
     running = sum(1 for container in containers if container["status"] == "running")
     healthy = sum(1 for container in containers if container["health"] == "healthy")
     stopped = sum(1 for container in containers if container["status"] in {"exited", "created", "dead"})
-    with_ports = sum(1 for container in containers if container["ports"] != "-")
     return {
         "total": len(containers),
         "running": running,
         "stopped": stopped,
         "healthy": healthy,
-        "with_ports": with_ports,
+        "with_ports": sum(1 for container in containers if container["ports"] != "-"),
     }
 
 
@@ -208,25 +238,27 @@ def _enrich_groups(groups: list[dict], containers: list[dict]) -> list[dict]:
     return enriched
 
 
-def _group_selection(group: dict | None, containers: list[dict]) -> dict[str, int]:
+def _group_selection(group: dict | None, containers: list[dict]) -> dict[str, dict]:
     if not group:
         return {}
     containers_by_id = _container_map(containers)
-    selected = {}
+    selected: dict[str, dict] = {}
     for item in group["containers"]:
         container_name = item.get("container_name")
-        if container_name:
-            selected[container_name] = item["position"]
-            continue
-        container = containers_by_id.get(item["container_id"])
-        selected[container["name"] if container else item["container_id"]] = item["position"]
+        ref = container_name
+        if not ref:
+            container = containers_by_id.get(item["container_id"])
+            ref = container["name"] if container else item["container_id"]
+        selected[ref] = {
+            "position": item["position"],
+            "delay_seconds": item.get("delay_seconds"),
+        }
     return selected
 
 
 def _missing_group_containers(group: dict | None, containers: list[dict]) -> list[dict]:
     if not group:
         return []
-
     current_ids = {container["id"] for container in containers}
     current_names = {container["name"] for container in containers}
     missing = []
@@ -238,6 +270,7 @@ def _missing_group_containers(group: dict | None, containers: list[dict]) -> lis
                 {
                     "ref": ref,
                     "position": item["position"],
+                    "delay_seconds": item.get("delay_seconds"),
                     "name": container_name or _short_id(item["container_id"]),
                 }
             )
@@ -259,9 +292,27 @@ def _schedule_target_label(schedule: dict, containers_by_id: dict[str, dict], gr
     return group["name"] if group else f"Group {schedule['target_id']}"
 
 
+def _schedule_rows(containers: list[dict] | None = None) -> list[dict]:
+    containers = containers if containers is not None else _with_docker_containers()[0]
+    groups_list = database.list_groups()
+    containers_by_id = _container_map(containers)
+    groups_by_id = {group["id"]: group for group in groups_list}
+    rows = []
+    for schedule in database.list_schedules():
+        copied = dict(schedule)
+        copied["target_label"] = _schedule_target_label(schedule, containers_by_id, groups_by_id)
+        copied["weekdays_label"] = _weekday_label(schedule["weekdays"])
+        copied["time_label"] = f"{schedule['hour']:02d}:{schedule['minute']:02d}"
+        copied["next_run"] = scheduler_service.get_next_run_time(schedule["id"])
+        rows.append(copied)
+    return rows
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     containers, docker_error = _with_docker_containers()
+    profiles = nas_service.list_profiles()
+    favorite_groups = [group for group in _enrich_groups(database.list_groups(), containers) if group.get("favorite")]
     return render(
         request,
         "dashboard.html",
@@ -269,83 +320,12 @@ def dashboard(request: Request):
             "containers": containers,
             "docker_error": docker_error,
             "stats": _dashboard_stats(containers),
-            "recent_runs": database.list_action_runs(source_type="container", limit=15),
+            "recent_runs": database.list_action_runs(limit=12),
+            "favorite_groups": favorite_groups,
+            "nas_profiles": profiles,
+            "upcoming_schedules": [row for row in _schedule_rows(containers) if row.get("enabled")][:7],
         },
     )
-
-
-@app.get("/nas", response_class=HTMLResponse)
-def nas(request: Request):
-    return render(
-        request,
-        "nas.html",
-        {
-            "nas_status": nas_service.current_status(),
-            "auto_start_groups": nas_service.dependent_groups(auto_start_only=True),
-            "auto_stop_groups": nas_service.dependent_groups(auto_stop_only=True),
-            "recent_runs": database.list_action_runs(trigger_prefix="nas-", limit=20),
-        },
-    )
-
-
-@app.post("/nas/settings")
-async def update_nas_settings(request: Request):
-    form = await request.form()
-    enabled = form.get("enabled") == "on"
-    host = (form.get("host") or "").strip()
-    check_interval_seconds = max(10, _safe_int(form.get("check_interval_seconds"), 60))
-    mount_paths_text = str(form.get("mount_paths") or "")
-
-    if enabled and not host:
-        return redirect_to("/nas", error="NAS host is required when NAS checks are enabled.")
-
-    nas_service.update_settings(enabled, host, check_interval_seconds, mount_paths_text)
-    scheduler_service.reload_nas_monitor()
-    return redirect_to("/nas", message="NAS settings were saved.")
-
-
-@app.post("/nas/check")
-def check_nas():
-    status = nas_service.check_status()
-    if not status["enabled"]:
-        return redirect_to("/nas", message="NAS checks are disabled.")
-    if status["ready"]:
-        return redirect_to("/nas", message="NAS is ready.")
-    return redirect_to("/nas", error=status["last_error"] or "NAS is not ready.")
-
-
-@app.post("/nas/start-dependent-groups")
-def start_nas_dependent_groups():
-    status = nas_service.check_status()
-    if not status["enabled"]:
-        return redirect_to("/nas", error="NAS checks are disabled.")
-    if not status["ready"]:
-        return redirect_to("/nas", error=status["last_error"] or "NAS is not ready.")
-
-    groups = nas_service.dependent_groups(auto_start_only=True)
-    if not groups:
-        return redirect_to("/nas", message="No groups are marked for NAS auto-start.")
-
-    started = 0
-    errors: list[str] = []
-    for group in groups:
-        try:
-            action_service.start_group_run(
-                group["id"],
-                "start",
-                trigger_type="nas-manual",
-                check_nas=False,
-            )
-            started += 1
-        except DockerOperationError as exc:
-            errors.append(f"{group['name']}: {exc}")
-
-    if errors:
-        return redirect_to(
-            "/nas",
-            error=f"Started {started} group run(s), but some groups failed to queue: {'; '.join(errors)}",
-        )
-    return redirect_to("/nas", message=f"Started {started} NAS-dependent group run(s).")
 
 
 @app.post("/containers/{container_id}/{action}")
@@ -374,22 +354,17 @@ def container_logs_preview(container_id: str):
         _, logs = get_container_logs(container_id, tail=30)
         return PlainTextResponse(logs or "No logs available.", media_type="text/plain; charset=utf-8")
     except DockerOperationError as exc:
-        return PlainTextResponse(
-            f"Failed to load log preview: {exc}",
-            status_code=500,
-            media_type="text/plain; charset=utf-8",
-        )
+        return PlainTextResponse(f"Failed to load log preview: {exc}", status_code=500)
 
 
 @app.get("/groups", response_class=HTMLResponse)
 def groups(request: Request):
     containers, docker_error = _with_docker_containers()
-    group_rows = _enrich_groups(database.list_groups(), containers)
     return render(
         request,
         "groups.html",
         {
-            "groups": group_rows,
+            "groups": _enrich_groups(database.list_groups(), containers),
             "containers": containers,
             "docker_error": docker_error,
             "actions": ACTIONS,
@@ -398,20 +373,21 @@ def groups(request: Request):
     )
 
 
+def _group_form_context(group: dict | None = None) -> dict:
+    containers, docker_error = _with_docker_containers()
+    return {
+        "group": group,
+        "containers": containers,
+        "docker_error": docker_error,
+        "selected_containers": _group_selection(group, containers),
+        "missing_containers": _missing_group_containers(group, containers),
+        "nas_profiles": nas_service.list_profiles(),
+    }
+
+
 @app.get("/groups/new", response_class=HTMLResponse)
 def new_group(request: Request):
-    containers, docker_error = _with_docker_containers()
-    return render(
-        request,
-        "group_form.html",
-        {
-            "group": None,
-            "containers": containers,
-            "docker_error": docker_error,
-            "selected_containers": {},
-            "missing_containers": [],
-        },
-    )
+    return render(request, "group_form.html", _group_form_context())
 
 
 @app.get("/groups/{group_id}/edit", response_class=HTMLResponse)
@@ -419,18 +395,7 @@ def edit_group(request: Request, group_id: int):
     group = database.get_group(group_id)
     if not group:
         return redirect_to("/groups", error="Group was not found.")
-    containers, docker_error = _with_docker_containers()
-    return render(
-        request,
-        "group_form.html",
-        {
-            "group": group,
-            "containers": containers,
-            "docker_error": docker_error,
-            "selected_containers": _group_selection(group, containers),
-            "missing_containers": _missing_group_containers(group, containers),
-        },
-    )
+    return render(request, "group_form.html", _group_form_context(group))
 
 
 async def _save_group_from_form(request: Request, group_id: int | None = None):
@@ -438,50 +403,56 @@ async def _save_group_from_form(request: Request, group_id: int | None = None):
     name = (form.get("name") or "").strip()
     delay_seconds = max(0, _safe_int(form.get("delay_seconds"), 5))
     selected = form.getlist("containers")
-    requires_nas = form.get("requires_nas") == "on"
-    auto_start_on_nas_online = form.get("auto_start_on_nas_online") == "on"
-    auto_stop_on_nas_offline = form.get("auto_stop_on_nas_offline") == "on"
+    nas_profile_id = _optional_int(form.get("nas_profile_id"))
+    requires_nas = form.get("requires_nas") == "on" or nas_profile_id is not None
+    auto_start = form.get("auto_start_on_nas_online") == "on"
+    auto_stop = form.get("auto_stop_on_nas_offline") == "on"
     containers, _ = _with_docker_containers()
     containers_by_name = _container_map_by_name(containers)
+    path = "/groups/new" if group_id is None else f"/groups/{group_id}/edit"
 
     if not name:
-        return redirect_to("/groups/new" if group_id is None else f"/groups/{group_id}/edit", error="Name is required.")
+        return redirect_to(path, error="Name is required.")
 
-    group_containers: list[tuple[str, str, int]] = []
+    group_containers: list[tuple[str, str, int, int | None]] = []
     for index, container_ref in enumerate(selected, start=1):
         container = containers_by_name.get(container_ref)
         container_name = container["name"] if container else container_ref
         container_id = container["id"] if container else container_ref
         position = max(1, _safe_int(form.get(f"order_{container_ref}"), index))
-        group_containers.append((container_name, container_id, position))
+        delay_value = form.get(f"delay_{container_ref}")
+        per_delay = None if delay_value in {None, ""} else max(0, _safe_int(delay_value, delay_seconds))
+        group_containers.append((container_name, container_id, position, per_delay))
     group_containers.sort(key=lambda item: item[2])
 
+    options = {
+        "nas_profile_id": nas_profile_id,
+        "favorite": form.get("favorite") == "on",
+        "error_policy": "continue" if form.get("error_policy") == "continue" else "stop",
+        "conflict_policy": "cancel_and_start" if form.get("conflict_policy") == "cancel_and_start" else "skip",
+        "wait_for_healthy": form.get("wait_for_healthy") == "on",
+        "health_timeout_seconds": max(1, _safe_int(form.get("health_timeout_seconds"), 60)),
+    }
     try:
         if group_id is None:
             database.create_group(
-                name,
-                delay_seconds,
-                group_containers,
+                name, delay_seconds, group_containers,
                 requires_nas=requires_nas,
-                auto_start_on_nas_online=auto_start_on_nas_online,
-                auto_stop_on_nas_offline=auto_stop_on_nas_offline,
+                auto_start_on_nas_online=auto_start,
+                auto_stop_on_nas_offline=auto_stop,
+                **options,
             )
             return redirect_to("/groups", message="Group was created.")
         database.update_group(
-            group_id,
-            name,
-            delay_seconds,
-            group_containers,
+            group_id, name, delay_seconds, group_containers,
             requires_nas=requires_nas,
-            auto_start_on_nas_online=auto_start_on_nas_online,
-            auto_stop_on_nas_offline=auto_stop_on_nas_offline,
+            auto_start_on_nas_online=auto_start,
+            auto_stop_on_nas_offline=auto_stop,
+            **options,
         )
         return redirect_to("/groups", message="Group was updated.")
     except sqlite3.IntegrityError:
-        return redirect_to(
-            "/groups/new" if group_id is None else f"/groups/{group_id}/edit",
-            error="A group with this name already exists.",
-        )
+        return redirect_to(path, error="A group with this name already exists.")
 
 
 @app.post("/groups/new")
@@ -515,44 +486,34 @@ def group_action(group_id: int, action: str):
 @app.get("/schedules", response_class=HTMLResponse)
 def schedules(request: Request):
     containers, docker_error = _with_docker_containers()
-    groups_list = database.list_groups()
-    containers_by_id = _container_map(containers)
-    groups_by_id = {group["id"]: group for group in groups_list}
-    schedule_rows = []
-    for schedule in database.list_schedules():
-        copied = dict(schedule)
-        copied["target_label"] = _schedule_target_label(schedule, containers_by_id, groups_by_id)
-        copied["weekdays_label"] = _weekday_label(schedule["weekdays"])
-        copied["time_label"] = f"{schedule['hour']:02d}:{schedule['minute']:02d}"
-        copied["next_run"] = scheduler_service.get_next_run_time(schedule["id"])
-        schedule_rows.append(copied)
     return render(
         request,
         "schedules.html",
         {
-            "schedules": schedule_rows,
+            "schedules": _schedule_rows(containers),
             "docker_error": docker_error,
             "recent_runs": database.list_action_runs(source_type="schedule", limit=20),
         },
     )
 
 
+def _schedule_form_context(schedule: dict | None = None) -> dict:
+    containers, docker_error = _with_docker_containers()
+    return {
+        "schedule": schedule,
+        "containers": containers,
+        "groups": database.list_groups(),
+        "nas_profiles": nas_service.list_profiles(),
+        "docker_error": docker_error,
+        "actions": ACTIONS,
+        "weekdays": WEEKDAYS,
+        "selected_weekdays": set(schedule["weekdays"].split(",")) if schedule and schedule["weekdays"] else set(),
+    }
+
+
 @app.get("/schedules/new", response_class=HTMLResponse)
 def new_schedule(request: Request):
-    containers, docker_error = _with_docker_containers()
-    return render(
-        request,
-        "schedule_form.html",
-        {
-            "schedule": None,
-            "containers": containers,
-            "groups": database.list_groups(),
-            "docker_error": docker_error,
-            "actions": ACTIONS,
-            "weekdays": WEEKDAYS,
-            "selected_weekdays": set(),
-        },
-    )
+    return render(request, "schedule_form.html", _schedule_form_context())
 
 
 @app.get("/schedules/{schedule_id}/edit", response_class=HTMLResponse)
@@ -560,20 +521,7 @@ def edit_schedule(request: Request, schedule_id: int):
     schedule = database.get_schedule(schedule_id)
     if not schedule:
         return redirect_to("/schedules", error="Schedule was not found.")
-    containers, docker_error = _with_docker_containers()
-    return render(
-        request,
-        "schedule_form.html",
-        {
-            "schedule": schedule,
-            "containers": containers,
-            "groups": database.list_groups(),
-            "docker_error": docker_error,
-            "actions": ACTIONS,
-            "weekdays": WEEKDAYS,
-            "selected_weekdays": set(schedule["weekdays"].split(",")) if schedule["weekdays"] else set(),
-        },
-    )
+    return render(request, "schedule_form.html", _schedule_form_context(schedule))
 
 
 def _parse_target(value: str | None) -> tuple[str, str]:
@@ -592,7 +540,9 @@ async def _save_schedule_from_form(request: Request, schedule_id: int | None = N
     time_value = (form.get("time") or "").strip()
     weekdays = ",".join(day for day, _ in WEEKDAYS if day in form.getlist("weekdays"))
     enabled = form.get("enabled") == "on"
-    require_nas = form.get("require_nas") == "on"
+    nas_profile_id = _optional_int(form.get("nas_profile_id"))
+    require_nas = form.get("require_nas") == "on" or nas_profile_id is not None
+    conflict_policy = "cancel_and_start" if form.get("conflict_policy") == "cancel_and_start" else "skip"
     path = "/schedules/new" if schedule_id is None else f"/schedules/{schedule_id}/edit"
 
     try:
@@ -609,33 +559,12 @@ async def _save_schedule_from_form(request: Request, schedule_id: int | None = N
     except (TypeError, ValueError) as exc:
         return redirect_to(path, error=str(exc))
 
+    options = {"nas_profile_id": nas_profile_id, "conflict_policy": conflict_policy}
     if schedule_id is None:
-        database.create_schedule(
-            name,
-            target_type,
-            target_id,
-            action,
-            hour,
-            minute,
-            weekdays,
-            enabled,
-            require_nas=require_nas,
-        )
+        database.create_schedule(name, target_type, target_id, action, hour, minute, weekdays, enabled, require_nas=require_nas, **options)
         scheduler_service.reload_schedules()
         return redirect_to("/schedules", message="Schedule was created.")
-
-    database.update_schedule(
-        schedule_id,
-        name,
-        target_type,
-        target_id,
-        action,
-        hour,
-        minute,
-        weekdays,
-        enabled,
-        require_nas=require_nas,
-    )
+    database.update_schedule(schedule_id, name, target_type, target_id, action, hour, minute, weekdays, enabled, require_nas=require_nas, **options)
     scheduler_service.reload_schedules()
     return redirect_to("/schedules", message="Schedule was updated.")
 
@@ -676,10 +605,216 @@ def delete_schedule(schedule_id: int):
     return redirect_to("/schedules", message="Schedule was deleted.")
 
 
+@app.get("/nas", response_class=HTMLResponse)
+def nas(request: Request):
+    profiles = nas_service.list_profiles()
+    return render(
+        request,
+        "nas.html",
+        {
+            "nas_profiles": profiles,
+            "nas_status": profiles[0] if profiles else nas_service.current_status(),
+            "auto_start_groups": nas_service.dependent_groups(auto_start_only=True),
+            "auto_stop_groups": nas_service.dependent_groups(auto_stop_only=True),
+            "recent_runs": database.list_action_runs(trigger_prefix="nas-", limit=20),
+        },
+    )
+
+
+@app.post("/nas/settings")
+async def update_nas_settings(request: Request):
+    form = await request.form()
+    enabled = form.get("enabled") == "on"
+    host = (form.get("host") or "").strip()
+    check_interval_seconds = max(10, _safe_int(form.get("check_interval_seconds"), 60))
+    mount_paths_text = str(form.get("mount_paths") or "")
+    if enabled and not host:
+        return redirect_to("/nas", error="NAS host is required when NAS checks are enabled.")
+    nas_service.update_settings(enabled, host, check_interval_seconds, mount_paths_text)
+    scheduler_service.reload_nas_monitor()
+    return redirect_to("/nas", message="NAS settings were saved.")
+
+
+async def _save_nas_profile(request: Request, profile_id: int | None):
+    form = await request.form()
+    values = {
+        "name": str(form.get("name") or "NAS"),
+        "enabled": form.get("enabled") == "on",
+        "host": str(form.get("host") or ""),
+        "check_interval_seconds": max(10, _safe_int(form.get("check_interval_seconds"), 60)),
+        "mount_paths": str(form.get("mount_paths") or ""),
+        "mac_address": str(form.get("mac_address") or ""),
+        "wol_enabled": form.get("wol_enabled") == "on",
+        "auto_wake": form.get("auto_wake") == "on",
+        "wake_wait_seconds": max(1, _safe_int(form.get("wake_wait_seconds"), 30)),
+    }
+    if values["enabled"] and not values["host"]:
+        return redirect_to("/nas", error="Host is required for an enabled NAS profile.")
+    try:
+        nas_service.save_profile(profile_id, values)
+    except sqlite3.IntegrityError:
+        return redirect_to("/nas", error="A NAS profile with this name already exists.")
+    scheduler_service.reload_nas_monitor()
+    return redirect_to("/nas", message="NAS profile was saved.")
+
+
+@app.post("/nas/profiles/new")
+async def create_nas_profile(request: Request):
+    return await _save_nas_profile(request, None)
+
+
+@app.post("/nas/profiles/{profile_id}")
+async def update_nas_profile(request: Request, profile_id: int):
+    return await _save_nas_profile(request, profile_id)
+
+
+@app.post("/nas/profiles/{profile_id}/delete")
+def delete_nas_profile(profile_id: int):
+    nas_service.delete_profile(profile_id)
+    scheduler_service.reload_nas_monitor()
+    return redirect_to("/nas", message="NAS profile was deleted.")
+
+
+@app.post("/nas/profiles/{profile_id}/check")
+def check_nas_profile(profile_id: int):
+    status = nas_service.check_status(profile_id)
+    if status["ready"]:
+        return redirect_to("/nas", message=f"{status['name']} is ready.")
+    return redirect_to("/nas", error=status["last_error"] or f"{status['name']} is not ready.")
+
+
+@app.post("/nas/profiles/{profile_id}/wake")
+def wake_nas_profile(profile_id: int):
+    try:
+        message = nas_service.wake(profile_id)
+        return redirect_to("/nas", message=message)
+    except (ValueError, OSError) as exc:
+        notification_service.send_event("wol_failed", "Wake-on-LAN failed", str(exc), {"profile_id": profile_id})
+        return redirect_to("/nas", error=str(exc))
+
+
+@app.post("/nas/check")
+def check_nas():
+    status = nas_service.check_status()
+    if not status["enabled"]:
+        return redirect_to("/nas", message="NAS checks are disabled.")
+    if status["ready"]:
+        return redirect_to("/nas", message="NAS is ready.")
+    return redirect_to("/nas", error=status["last_error"] or "NAS is not ready.")
+
+
+@app.post("/nas/start-dependent-groups")
+def start_nas_dependent_groups():
+    groups = nas_service.dependent_groups(auto_start_only=True)
+    if not groups:
+        return redirect_to("/nas", message="No groups are marked for NAS auto-start.")
+    started = 0
+    errors: list[str] = []
+    for group in groups:
+        ready, message = nas_service.require_ready(group.get("nas_profile_id"), auto_wake=True)
+        if not ready:
+            errors.append(f"{group['name']}: {message}")
+            continue
+        try:
+            action_service.start_group_run(group["id"], "start", trigger_type="nas-manual", check_nas=False)
+            started += 1
+        except DockerOperationError as exc:
+            errors.append(f"{group['name']}: {exc}")
+    if errors:
+        return redirect_to("/nas", error=f"Started {started} group run(s); issues: {'; '.join(errors)}")
+    return redirect_to("/nas", message=f"Started {started} NAS-dependent group run(s).")
+
+
+@app.get("/logs", response_class=HTMLResponse)
+def run_logs(request: Request):
+    return render(request, "run_logs.html", {"runs": database.list_action_runs(limit=100)})
+
+
 @app.get("/runs/{run_id}", response_class=HTMLResponse)
 def action_run_detail(request: Request, run_id: int):
     run = database.get_action_run(run_id)
     if not run:
-        return redirect_to("/", error="Run was not found.")
-    steps = database.get_action_run_steps(run_id)
-    return render(request, "run_detail.html", {"run": run, "steps": steps})
+        return redirect_to("/logs", error="Run was not found.")
+    return render(request, "run_detail.html", {"run": run, "steps": database.get_action_run_steps(run_id)})
+
+
+@app.post("/runs/{run_id}/cancel")
+def cancel_action_run(run_id: int):
+    if action_service.cancel_run(run_id):
+        return redirect_to(f"/runs/{run_id}", message="Cancellation requested.")
+    return redirect_to(f"/runs/{run_id}", error="Run is not active or was not found.")
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings(request: Request):
+    return render(
+        request,
+        "settings.html",
+        {
+            "log_retention_days": database.get_setting("log_retention_days", "30"),
+            "webhooks": notification_service.list_webhooks(),
+            "webhook_events": WEBHOOK_EVENTS,
+        },
+    )
+
+
+@app.post("/settings/preferences")
+async def update_preferences(request: Request):
+    form = await request.form()
+    retention = max(1, min(3650, _safe_int(form.get("log_retention_days"), 30)))
+    database.set_setting("log_retention_days", str(retention))
+    return redirect_to("/settings", message="Settings saved.")
+
+
+@app.get("/settings/export")
+def export_configuration():
+    content = config_service.export_configuration()
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{config_service.export_filename()}"'},
+    )
+
+
+@app.post("/settings/import")
+async def import_configuration(file: UploadFile):
+    try:
+        raw = (await file.read()).decode("utf-8")
+        config_service.import_configuration(raw)
+        scheduler_service.reload_schedules()
+        scheduler_service.reload_nas_monitor()
+        return redirect_to("/settings", message="Configuration was restored.")
+    except (UnicodeDecodeError, config_service.ConfigurationImportError, sqlite3.DatabaseError) as exc:
+        return redirect_to("/settings", error=f"Import failed: {exc}")
+
+
+@app.post("/settings/webhooks/new")
+async def create_webhook(request: Request):
+    form = await request.form()
+    url = str(form.get("url") or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return redirect_to("/settings", error="Webhook URL must use http or https.")
+    notification_service.save_webhook(
+        None,
+        str(form.get("name") or "Webhook"),
+        str(form.get("kind") or "generic"),
+        url,
+        form.get("enabled") == "on",
+        form.getlist("events"),
+    )
+    return redirect_to("/settings", message="Webhook was created.")
+
+
+@app.post("/settings/webhooks/{webhook_id}/delete")
+def delete_webhook(webhook_id: int):
+    notification_service.delete_webhook(webhook_id)
+    return redirect_to("/settings", message="Webhook was deleted.")
+
+
+@app.post("/settings/webhooks/{webhook_id}/test")
+def test_webhook(webhook_id: int):
+    try:
+        notification_service.test_webhook(webhook_id)
+        return redirect_to("/settings", message="Webhook test succeeded.")
+    except Exception as exc:
+        return redirect_to("/settings", error=str(exc))
