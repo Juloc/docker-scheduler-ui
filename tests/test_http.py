@@ -71,7 +71,9 @@ def test_authenticated_container_workspace_is_available_without_docker(monkeypat
     assert "Hide infrastructure" in response.text
 
 
-def test_feature_routes_are_registered_after_main_extraction():
-    paths = {route.path for route in app.routes if hasattr(route, "path")}
-    for expected in {"/", "/containers", "/groups", "/schedules", "/nas", "/logs", "/settings"}:
-        assert expected in paths
+def test_all_primary_workspaces_are_reachable_after_route_extraction(monkeypatch, tmp_path):
+    with _client(monkeypatch, tmp_path) as client:
+        _login(client)
+        for path in ("/", "/containers", "/groups", "/schedules", "/nas", "/logs", "/settings"):
+            response = client.get(path)
+            assert response.status_code == 200, path
