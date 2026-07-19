@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -14,6 +14,14 @@ RETENTION_JOB_ID = "log-retention"
 
 def _job_id(schedule_id: int) -> str:
     return f"schedule-{schedule_id}"
+
+
+def _trigger_for(schedule: dict) -> CronTrigger:
+    return CronTrigger(
+        day_of_week=schedule["weekdays"] or None,
+        hour=schedule["hour"],
+        minute=schedule["minute"],
+    )
 
 
 def start_scheduler() -> None:
@@ -34,14 +42,9 @@ def reload_schedules() -> None:
         if job.id.startswith("schedule-"):
             scheduler.remove_job(job.id)
     for schedule in database.list_enabled_schedules():
-        trigger = CronTrigger(
-            day_of_week=schedule["weekdays"] or None,
-            hour=schedule["hour"],
-            minute=schedule["minute"],
-        )
         scheduler.add_job(
             run_schedule,
-            trigger=trigger,
+            trigger=_trigger_for(schedule),
             args=[schedule["id"]],
             id=_job_id(schedule["id"]),
             replace_existing=True,
@@ -191,3 +194,36 @@ def get_next_run_time(schedule_id: int) -> str:
     if not job or not job.next_run_time:
         return "-"
     return job.next_run_time.strftime("%Y-%m-%d %H:%M")
+
+
+def get_upcoming_occurrences(days: int = 7, now: datetime | None = None) -> list[dict]:
+    """Return every enabled schedule occurrence in the requested horizon.
+
+    Unlike the old dashboard list, this expands recurring schedules, so a daily
+    schedule appears once for each actual occurrence within the next seven days.
+    """
+    start = now or datetime.now().astimezone()
+    end = start + timedelta(days=max(1, days))
+    occurrences: list[dict] = []
+
+    for schedule in database.list_enabled_schedules():
+        trigger = _trigger_for(schedule)
+        previous = None
+        fire_time = trigger.get_next_fire_time(previous, start)
+        while fire_time is not None and fire_time <= end:
+            occurrences.append(
+                {
+                    "schedule_id": schedule["id"],
+                    "name": schedule["name"],
+                    "target_type": schedule["target_type"],
+                    "target_id": schedule["target_id"],
+                    "action": schedule["action"],
+                    "run_at": fire_time,
+                    "date_label": fire_time.strftime("%a %d.%m"),
+                    "time_label": fire_time.strftime("%H:%M"),
+                }
+            )
+            previous = fire_time
+            fire_time = trigger.get_next_fire_time(previous, fire_time)
+
+    return sorted(occurrences, key=lambda item: item["run_at"])
