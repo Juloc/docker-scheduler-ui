@@ -3,164 +3,102 @@
 {% block content %}
 <section class="section-header">
   <div>
-    <h1>NAS Guard</h1>
-    <p>Gate group and schedule execution on NAS reachability and optional mount checks.</p>
+    <h1>NAS</h1>
+    <p>Readiness checks and Wake-on-LAN for storage dependencies used by groups and schedules.</p>
   </div>
-  <div class="actions">
-    <form method="post" action="/nas/check"><button>Check Now</button></form>
-    <form method="post" action="/nas/start-dependent-groups" onsubmit="return confirm('Verify NAS and start all groups marked for NAS auto-start?');">
-      <button class="primary">Verify NAS and start dependent groups</button>
-    </form>
-  </div>
+  <form method="post" action="/nas/start-dependent-groups"><button class="primary">Start ready dependent groups</button></form>
 </section>
 
-<div class="nas-grid">
-  <section class="panel">
+<div class="stack">
+  {% for profile in nas_profiles %}
+  <section class="panel nas-profile-panel">
     <div class="panel-header">
       <div>
-        <h2>Current Status</h2>
-        <p>Last known NAS state from the configured checks.</p>
+        <h2>{{ profile.name }}</h2>
+        <p>{{ profile.host or 'No host configured' }}</p>
       </div>
-      {% if not nas_status.enabled %}
-      <span class="pill">disabled</span>
-      {% elif nas_status.ready %}
-      <span class="pill status-success">ready</span>
-      {% else %}
-      <span class="pill status-failed">offline</span>
-      {% endif %}
+      <div class="actions">
+        {% if not profile.enabled %}<span class="pill">Disabled</span>
+        {% elif profile.ready %}<span class="pill status-success">Ready</span>
+        {% elif profile.last_checked_at %}<span class="pill status-failed">Offline</span>
+        {% else %}<span class="pill">Checking</span>{% endif %}
+        <form method="post" action="/nas/profiles/{{ profile.id }}/check"><button>Check</button></form>
+        {% if profile.wol_enabled %}<form method="post" action="/nas/profiles/{{ profile.id }}/wake"><button>Wake</button></form>{% endif %}
+      </div>
     </div>
 
-    <dl class="status-list">
-      <div>
-        <dt>Host</dt>
-        <dd>{{ nas_status.host if nas_status.host else '-' }}</dd>
-      </div>
-      <div>
-        <dt>Host reachable</dt>
-        <dd>{% if nas_status.host_online %}yes{% else %}no{% endif %}</dd>
-      </div>
-      <div>
-        <dt>Mounts OK</dt>
-        <dd>{% if nas_status.mounts_ok %}yes{% else %}no{% endif %}</dd>
-      </div>
-      <div>
-        <dt>Last checked</dt>
-        <dd>{{ nas_status.last_checked_at if nas_status.last_checked_at else '-' }}</dd>
-      </div>
-      <div>
-        <dt>Last error</dt>
-        <dd>{% if nas_status.last_error %}<span class="warning">{{ nas_status.last_error }}</span>{% else %}-{% endif %}</dd>
-      </div>
-    </dl>
+    <div class="nas-profile-grid">
+      <form class="settings-form" method="post" action="/nas/profiles/{{ profile.id }}">
+        <div class="form-grid two-col">
+          <label>Name<input type="text" name="name" value="{{ profile.name }}" required></label>
+          <label>Host or IP<input type="text" name="host" value="{{ profile.host }}" placeholder="nas.local or 192.168.1.10"></label>
+          <label>Check interval (seconds)<input type="number" min="10" name="check_interval_seconds" value="{{ profile.check_interval_seconds }}"></label>
+          <label>Wake wait (seconds)<input type="number" min="1" name="wake_wait_seconds" value="{{ profile.wake_wait_seconds }}"></label>
+          <label>MAC address<input type="text" name="mac_address" value="{{ profile.mac_address }}" placeholder="AA:BB:CC:DD:EE:FF"></label>
+          <label>Mount paths<textarea name="mount_paths" rows="3" placeholder="/mnt/nas">{{ profile.mount_paths_text }}</textarea></label>
+        </div>
+        <div class="checkbox-row">
+          <label class="checkbox"><input type="checkbox" name="enabled" {% if profile.enabled %}checked{% endif %}>Enable checks</label>
+          <label class="checkbox"><input type="checkbox" name="wol_enabled" {% if profile.wol_enabled %}checked{% endif %}>Enable Wake-on-LAN</label>
+          <label class="checkbox"><input type="checkbox" name="auto_wake" {% if profile.auto_wake %}checked{% endif %}>Auto-wake before dependent start</label>
+        </div>
+        <div class="form-actions"><button class="primary" type="submit">Save</button></div>
+      </form>
+
+      <dl class="status-list">
+        <div><dt>Host reachable</dt><dd>{{ 'Yes' if profile.host_online else 'No' }}</dd></div>
+        <div><dt>Mounts OK</dt><dd>{{ 'Yes' if profile.mounts_ok else 'No' }}</dd></div>
+        <div><dt>Last checked</dt><dd>{{ profile.last_checked_at or '-' }}</dd></div>
+        <div><dt>Last error</dt><dd>{% if profile.last_error %}<span class="warning">{{ profile.last_error }}</span>{% else %}-{% endif %}</dd></div>
+      </dl>
+    </div>
+    <form method="post" action="/nas/profiles/{{ profile.id }}/delete" onsubmit="return confirm('Delete this NAS profile? Group and schedule assignments will be cleared.');">
+      <button class="danger" type="submit">Delete profile</button>
+    </form>
   </section>
+  {% else %}
+  <section class="panel"><p class="empty">No NAS profiles configured. Create one below.</p></section>
+  {% endfor %}
 
   <section class="panel">
-    <div class="panel-header">
-      <div>
-        <h2>Settings</h2>
-        <p>Mount paths must be visible inside this app container.</p>
+    <div class="panel-header"><div><h2>Add NAS profile</h2><p>Create separate profiles for each NAS or storage endpoint.</p></div></div>
+    <form class="settings-form" method="post" action="/nas/profiles/new">
+      <div class="form-grid two-col">
+        <label>Name<input type="text" name="name" value="NAS" required></label>
+        <label>Host or IP<input type="text" name="host" placeholder="nas.local or 192.168.1.10"></label>
+        <label>Check interval (seconds)<input type="number" min="10" name="check_interval_seconds" value="60"></label>
+        <label>Wake wait (seconds)<input type="number" min="1" name="wake_wait_seconds" value="30"></label>
+        <label>MAC address<input type="text" name="mac_address" placeholder="AA:BB:CC:DD:EE:FF"></label>
+        <label>Mount paths<textarea name="mount_paths" rows="3" placeholder="/mnt/nas"></textarea></label>
       </div>
-    </div>
-    <form class="settings-form" method="post" action="/nas/settings">
-      <label class="checkbox">
-        <input type="checkbox" name="enabled" {% if nas_status.enabled %}checked{% endif %}>
-        Enable NAS checks
-      </label>
-
-      <label>
-        NAS host or IP
-        <input type="text" name="host" value="{{ nas_status.host }}" placeholder="nas.local or your NAS IP">
-      </label>
-
-      <label>
-        Check interval (seconds)
-        <input type="number" min="10" name="check_interval_seconds" value="{{ nas_status.check_interval_seconds }}">
-      </label>
-
-      <label>
-        Mount paths to verify
-        <textarea name="mount_paths" rows="5" placeholder="/mnt/nas&#10;/mnt/nas/share">{{ nas_status.mount_paths_text }}</textarea>
-      </label>
-
-      <div class="form-actions">
-        <button class="primary" type="submit">Save NAS Settings</button>
+      <div class="checkbox-row">
+        <label class="checkbox"><input type="checkbox" name="enabled" checked>Enable checks</label>
+        <label class="checkbox"><input type="checkbox" name="wol_enabled">Enable Wake-on-LAN</label>
+        <label class="checkbox"><input type="checkbox" name="auto_wake">Auto-wake before dependent start</label>
       </div>
+      <button class="primary" type="submit">Add profile</button>
     </form>
   </section>
 </div>
 
 <div class="nas-grid">
   <section class="panel">
-    <div class="panel-header">
-      <div>
-        <h2>Auto-start Groups</h2>
-        <p>Started when NAS changes from not ready to ready, and by the dependent-groups button.</p>
-      </div>
-    </div>
-    <ul class="plain-list">
-      {% for group in auto_start_groups %}
-      <li>{{ group.name }}</li>
-      {% else %}
-      <li class="empty">No groups are marked for NAS auto-start.</li>
-      {% endfor %}
-    </ul>
+    <div class="panel-header"><div><h2>Auto-start groups</h2><p>Started when their assigned NAS changes to ready.</p></div></div>
+    <ul class="plain-list">{% for group in auto_start_groups %}<li>{{ group.name }}</li>{% else %}<li class="empty">No groups configured.</li>{% endfor %}</ul>
   </section>
-
   <section class="panel">
-    <div class="panel-header">
-      <div>
-        <h2>Auto-stop Groups</h2>
-        <p>Stopped when NAS changes from ready to not ready.</p>
-      </div>
-    </div>
-    <ul class="plain-list">
-      {% for group in auto_stop_groups %}
-      <li>{{ group.name }}</li>
-      {% else %}
-      <li class="empty">No groups are marked for NAS auto-stop.</li>
-      {% endfor %}
-    </ul>
+    <div class="panel-header"><div><h2>Auto-stop groups</h2><p>Stopped when their assigned NAS becomes unavailable.</p></div></div>
+    <ul class="plain-list">{% for group in auto_stop_groups %}<li>{{ group.name }}</li>{% else %}<li class="empty">No groups configured.</li>{% endfor %}</ul>
   </section>
 </div>
 
 <section class="panel run-log-panel">
-  <div class="panel-header">
-    <div>
-      <h2>NAS-triggered Runs</h2>
-      <p>Actions started by NAS online/offline automation or the dependent-groups button.</p>
-    </div>
-  </div>
+  <div class="panel-header"><div><h2>NAS-triggered runs</h2><p>Recent automatic and manual NAS-related actions.</p></div></div>
   {% if recent_runs %}
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Started</th>
-          <th>Group</th>
-          <th>Action</th>
-          <th>Trigger</th>
-          <th>Status</th>
-          <th>Error</th>
-          <th>Log</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for run in recent_runs %}
-        <tr>
-          <td>{{ run.started_at }}</td>
-          <td>{{ run.target_label }}</td>
-          <td>{{ run.action }}</td>
-          <td>{{ run.trigger_type }}</td>
-          <td><span class="pill status-{{ run.status }}">{{ run.status }}</span></td>
-          <td>{% if run.error %}<span class="warning">{{ run.error }}</span>{% else %}-{% endif %}</td>
-          <td><a class="button secondary" href="/runs/{{ run.id }}">Open</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="empty">No NAS-triggered runs yet.</p>
-  {% endif %}
+  <div class="table-wrap"><table class="compact-table">
+    <thead><tr><th>Started</th><th>Group</th><th>Action</th><th>Trigger</th><th>Status</th><th>Log</th></tr></thead>
+    <tbody>{% for run in recent_runs %}<tr><td>{{ run.started_at }}</td><td>{{ run.target_label }}</td><td>{{ run.action }}</td><td>{{ run.trigger_type }}</td><td><span class="pill status-{{ run.status }}">{{ run.status }}</span></td><td><a class="button secondary" href="/runs/{{ run.id }}">Open</a></td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="empty">No NAS-triggered runs yet.</p>{% endif %}
 </section>
 {% endblock %}
