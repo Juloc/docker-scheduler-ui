@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section-header">
+  <div><h1>Settings</h1><p>Application preferences, integrations, backup and version information.</p></div>
+  <span id="autosave-status" class="autosave-status" aria-live="polite"></span>
+</section>
+
+<div class="settings-layout">
+  <section class="panel">
+    <div class="panel-header"><div><h2>General</h2><p>Changes are saved automatically.</p></div></div>
+    <form id="preferences-form" class="settings-form" method="post" action="/settings/preferences" data-autosave>
+      <label>
+        Detailed log retention (days)
+        <input type="number" min="1" max="3650" name="log_retention_days" value="{{ log_retention_days }}">
+        <span class="form-help">Older runs are compacted to summary history.</span>
+      </label>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header"><div><h2>Backup & restore</h2><p>Exports configuration only. Detailed run logs are intentionally excluded.</p></div></div>
+    <div class="form-actions"><a class="button primary" href="/settings/export">Export configuration</a></div>
+    <form class="settings-form import-form" method="post" action="/settings/import" enctype="multipart/form-data" onsubmit="return confirm('Restore this configuration backup? Current configuration will be replaced after a safety backup.');">
+      <label>Restore JSON backup<input type="file" name="file" accept="application/json,.json" required></label>
+      <button type="submit">Restore backup</button>
+    </form>
+  </section>
+
+  <section class="panel settings-wide">
+    <div class="panel-header"><div><h2>Webhooks</h2><p>Simple generic integrations with presets for Home Assistant and Discord.</p></div></div>
+    {% if webhooks %}
+    <div class="table-wrap"><table class="compact-table">
+      <thead><tr><th>Name</th><th>Type</th><th>Events</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>{% for webhook in webhooks %}<tr>
+        <td>{{ webhook.name }}</td><td>{{ webhook.kind }}</td><td>{{ webhook.events or 'All' }}</td>
+        <td><span class="pill">{{ 'Enabled' if webhook.enabled else 'Disabled' }}</span></td>
+        <td><div class="actions">
+          <form method="post" action="/settings/webhooks/{{ webhook.id }}/test"><button>Test</button></form>
+          <form method="post" action="/settings/webhooks/{{ webhook.id }}/delete" onsubmit="return confirm('Delete webhook?');"><button class="danger">Delete</button></form>
+        </div></td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+    {% endif %}
+
+    <details class="advanced-options" {% if not webhooks %}open{% endif %}>
+      <summary>Add webhook</summary>
+      <form class="settings-form" method="post" action="/settings/webhooks/new">
+        <div class="form-grid two-col">
+          <label>Name<input type="text" name="name" value="Webhook" required></label>
+          <label>Type<select name="kind"><option value="generic">Generic JSON</option><option value="home_assistant">Home Assistant</option><option value="discord">Discord</option></select></label>
+          <label class="form-span-2">URL<input type="url" name="url" placeholder="https://..." required></label>
+        </div>
+        <fieldset><legend>Events</legend><div class="checkbox-row">{% for value, label in webhook_events %}<label class="checkbox"><input type="checkbox" name="events" value="{{ value }}">{{ label }}</label>{% endfor %}</div><p class="form-help">Select none to receive all supported events.</p></fieldset>
+        <label class="checkbox"><input type="checkbox" name="enabled" checked>Enabled</label>
+        <button class="primary" type="submit">Add webhook</button>
+      </form>
+    </details>
+  </section>
+
+  <section class="panel settings-wide">
+    <div class="panel-header"><div><h2>About</h2><p>Deployment and diagnostic information.</p></div></div>
+    <dl class="status-list about-list">
+      <div><dt>Installed version</dt><dd>v{{ app_version }}</dd></div>
+      <div><dt>Build commit</dt><dd><code>{{ build_commit }}</code></dd></div>
+      <div><dt>Runtime</dt><dd>FastAPI · SQLite · APScheduler · Docker SDK</dd></div>
+    </dl>
+    <p class="form-help">Updates are deployed through Docker/GitOps. The application does not self-update.</p>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', path='/settings.js') }}?v={{ asset_version }}"></script>{% endblock %}
