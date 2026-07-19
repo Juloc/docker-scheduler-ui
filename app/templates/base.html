@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <title>{{ app_name }}</title>
   <script src="{{ url_for('static', path='/theme.js') }}?v={{ asset_version }}"></script>
@@ -10,8 +10,13 @@
   <link rel="stylesheet" href="{{ url_for('static', path='/fluent.css') }}?v={{ asset_version }}">
 </head>
 <body>
+  <div class="mobile-appbar">
+    <button class="mobile-nav-toggle" type="button" aria-label="Open navigation" aria-controls="app-sidebar" aria-expanded="false">☰</button>
+    <a class="mobile-brand" href="/"><span class="brand-mark">DS</span><strong>{{ app_name }}</strong></a>
+  </div>
+  <div class="sidebar-backdrop" data-sidebar-close hidden></div>
   <div class="app-shell">
-    <aside class="sidebar" aria-label="Application navigation">
+    <aside class="sidebar" id="app-sidebar" aria-label="Application navigation">
       <a class="sidebar-brand" href="/" aria-label="docker-scheduler-ui Home">
         <span class="brand-mark">DS</span>
         <span class="brand-text"><strong>{{ app_name }}</strong><small>Docker scheduler</small></span>
@@ -43,6 +48,22 @@
       {% block content %}{% endblock %}
     </main></div>
   </div>
+  <script>
+    (() => {
+      const button = document.querySelector('.mobile-nav-toggle');
+      const sidebar = document.getElementById('app-sidebar');
+      const backdrop = document.querySelector('.sidebar-backdrop');
+      const setOpen = (open) => {
+        document.body.classList.toggle('mobile-nav-open', open);
+        button?.setAttribute('aria-expanded', String(open));
+        if (backdrop) backdrop.hidden = !open;
+      };
+      button?.addEventListener('click', () => setOpen(!document.body.classList.contains('mobile-nav-open')));
+      backdrop?.addEventListener('click', () => setOpen(false));
+      sidebar?.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => setOpen(false)));
+      window.addEventListener('keydown', (event) => { if (event.key === 'Escape') setOpen(false); });
+    })();
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
