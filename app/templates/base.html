@@ -3,46 +3,65 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>{{ app_name }}</title>
+  <script src="{{ url_for('static', path='/theme.js') }}?v={{ asset_version }}"></script>
   <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v={{ asset_version }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/fluent.css') }}?v={{ asset_version }}">
 </head>
 <body>
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="/">
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Application navigation">
+      <a class="sidebar-brand" href="/" aria-label="docker-scheduler-ui Home">
         <span class="brand-mark">DS</span>
         <span class="brand-text">
-          <span>{{ app_name }}</span>
+          <strong>{{ app_name }}</strong>
           <small>Docker scheduler</small>
         </span>
       </a>
-      <nav class="nav-links" aria-label="Main navigation">
-        <a class="{{ nav_dashboard_class }}" href="/">Dashboard</a>
-        <a class="{{ nav_groups_class }}" href="/groups">Groups</a>
-        <a class="{{ nav_schedules_class }}" href="/schedules">Schedules</a>
-        <a class="{{ nav_nas_class }}" href="/nas">NAS</a>
+
+      <nav class="sidebar-nav" aria-label="Main navigation">
+        <a class="{{ nav_dashboard_class }}" href="/">
+          <span class="nav-icon" aria-hidden="true">⌂</span><span class="nav-label">Home</span>
+        </a>
+        <a href="/#containers">
+          <span class="nav-icon" aria-hidden="true">▣</span><span class="nav-label">Containers</span>
+        </a>
+        <a class="{{ nav_groups_class }}" href="/groups">
+          <span class="nav-icon" aria-hidden="true">☷</span><span class="nav-label">Groups</span>
+        </a>
+        <a class="{{ nav_schedules_class }}" href="/schedules">
+          <span class="nav-icon" aria-hidden="true">◷</span><span class="nav-label">Schedules</span>
+        </a>
+        <a class="{{ nav_nas_class }}" href="/nas">
+          <span class="nav-icon" aria-hidden="true">⌁</span><span class="nav-label">NAS</span>
+        </a>
       </nav>
-      {% if auth_mode == 'form' %}
-      <form class="logout-form" method="post" action="/logout">
-        <button type="submit">Logout</button>
-      </form>
-      {% endif %}
+
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-footer">
+        <div class="theme-switcher" role="group" aria-label="Theme">
+          <button type="button" data-theme-choice="system" aria-pressed="true" title="Use system theme"><span>System</span></button>
+          <button type="button" data-theme-choice="dark" aria-pressed="false" title="Use dark theme"><span>Dark</span></button>
+          <button type="button" data-theme-choice="light" aria-pressed="false" title="Use light theme"><span>Light</span></button>
+        </div>
+        {% if auth_mode == 'form' %}
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit" class="secondary">Logout</button>
+        </form>
+        {% endif %}
+      </div>
+    </aside>
+
+    <div class="app-main">
+      <main class="page">
+        {% if message %}<div class="alert success" role="status">{{ message }}</div>{% endif %}
+        {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
+        {% if docker_error %}<div class="alert error" role="alert">{{ docker_error }}</div>{% endif %}
+        {% block content %}{% endblock %}
+      </main>
     </div>
-  </header>
-
-  <main class="page">
-    {% if message %}
-      <div class="alert success">{{ message }}</div>
-    {% endif %}
-    {% if error %}
-      <div class="alert error">{{ error }}</div>
-    {% endif %}
-    {% if docker_error %}
-      <div class="alert error">{{ docker_error }}</div>
-    {% endif %}
-
-    {% block content %}{% endblock %}
-  </main>
+  </div>
   {% block scripts %}{% endblock %}
 </body>
 </html>
