@@ -1,28 +1,37 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="section-header">
+<section class="section-header containers-header">
   <div><h1>Containers</h1><p>Compact Docker workspace for status, actions, Compose projects and logs.</p></div>
   <span class="visible-count"><span id="visible-container-count">{{ stats.total }}</span> visible</span>
 </section>
 
-<section class="dashboard-toolbar" aria-label="Container controls">
-  <label class="search-box"><span>Search</span><input id="container-search" type="search" placeholder="Name, image, project, status…" autocomplete="off"></label>
+<section class="container-summary-grid" aria-label="Container summary">
+  <article class="container-summary-card"><span>Total</span><strong>{{ stats.total }}</strong><small>Containers</small></article>
+  <article class="container-summary-card"><span>Running</span><strong>{{ stats.running }}</strong><small>Active</small></article>
+  <article class="container-summary-card"><span>Stopped</span><strong>{{ stats.stopped }}</strong><small>Inactive</small></article>
+  <article class="container-summary-card"><span>Unhealthy</span><strong>{{ stats.unhealthy }}</strong><small>Needs attention</small></article>
+</section>
+
+<section class="dashboard-toolbar container-toolbar" aria-label="Container controls">
+  <label class="search-box container-search"><span>Search</span><input id="container-search" type="search" placeholder="Name, image, project, status…" autocomplete="off"></label>
   <div class="status-tabs" aria-label="Status filter">
     <button type="button" class="active" data-status-filter="all">All</button>
     <button type="button" data-status-filter="running">Running</button>
     <button type="button" data-status-filter="stopped">Stopped</button>
     <button type="button" data-status-filter="unhealthy">Unhealthy</button>
   </div>
-  <label class="compact-control">Project
-    <select id="compose-project-filter">
-      <option value="">All projects</option>
-      {% for project in compose_projects %}<option value="{{ project }}">{{ project }}</option>{% endfor %}
-      <option value="__standalone__">Standalone</option>
-    </select>
-  </label>
-  <label class="checkbox"><input id="group-by-project" type="checkbox"> Group by Compose project</label>
-  <label class="checkbox"><input id="hide-infrastructure" type="checkbox"> Hide infrastructure</label>
+  <div class="container-filter-row">
+    <label class="compact-control">Project
+      <select id="compose-project-filter">
+        <option value="">All projects</option>
+        {% for project in compose_projects %}<option value="{{ project }}">{{ project }}</option>{% endfor %}
+        <option value="__standalone__">Standalone</option>
+      </select>
+    </label>
+    <label class="checkbox"><input id="group-by-project" type="checkbox"> Group by Compose project</label>
+    <label class="checkbox"><input id="hide-infrastructure" type="checkbox"> Hide infrastructure</label>
+  </div>
 </section>
 
 {% if compose_projects %}
@@ -35,18 +44,18 @@
 </details>
 {% endif %}
 
-<div class="table-wrap dashboard-table">
-  <table class="compact-table" id="containers-table">
+<div class="table-wrap dashboard-table container-table-wrap">
+  <table class="compact-table container-table" id="containers-table">
     <thead><tr><th>Name</th><th>Image / Compose</th><th>Status</th><th>Health</th><th>Restart policy</th><th>Actions</th></tr></thead>
     <tbody id="containers-body">
       {% for container in containers %}
       <tr class="container-row" data-container-row="{{ container.id }}" data-status="{{ container.status }}" data-health="{{ container.health }}" data-project="{{ container.compose_project or '__standalone__' }}" data-search="{{ container.name }} {{ container.image }} {{ container.short_id }} {{ container.status }} {{ container.health }} {{ container.restart_policy }} {{ container.compose_project }} {{ container.compose_service }}">
-        <td class="name-cell"><div class="name-stack"><div class="container-name">{{ container.name }}</div><span class="muted">{{ container.short_id }}</span></div></td>
-        <td><div class="image-name truncate" title="{{ container.image }}">{{ container.image }}</div>{% if container.compose_project %}<span class="muted">{{ container.compose_project }}{% if container.compose_service %} / {{ container.compose_service }}{% endif %}</span>{% else %}<span class="muted">Standalone</span>{% endif %}</td>
-        <td><span class="pill status-{{ container.status }}"><span class="status-dot"></span>{{ container.status }}</span></td>
-        <td>{% if container.health == 'healthy' %}<span class="pill ok"><span class="status-dot"></span>healthy</span>{% elif container.health == '-' %}<span class="muted">No check</span>{% else %}<span class="pill status-{{ container.health }}">{{ container.health }}</span>{% endif %}</td>
-        <td>{{ container.restart_policy }}</td>
-        <td class="action-cell"><div class="actions action-buttons">
+        <td class="name-cell" data-label="Name"><div class="name-stack"><div class="container-name">{{ container.name }}</div><span class="muted">{{ container.short_id }}</span></div></td>
+        <td data-label="Image / Compose"><div class="image-name truncate" title="{{ container.image }}">{{ container.image }}</div>{% if container.compose_project %}<span class="muted">{{ container.compose_project }}{% if container.compose_service %} / {{ container.compose_service }}{% endif %}</span>{% else %}<span class="muted">Standalone</span>{% endif %}</td>
+        <td data-label="Status"><span class="pill status-{{ container.status }}"><span class="status-dot"></span>{{ container.status }}</span></td>
+        <td data-label="Health">{% if container.health == 'healthy' %}<span class="pill ok"><span class="status-dot"></span>healthy</span>{% elif container.health == '-' %}<span class="muted">No check</span>{% else %}<span class="pill status-{{ container.health }}">{{ container.health }}</span>{% endif %}</td>
+        <td data-label="Restart policy">{{ container.restart_policy }}</td>
+        <td class="action-cell" data-label="Actions"><div class="actions action-buttons">
           <form method="post" action="/containers/{{ container.id }}/start"><button class="btn-start">Start</button></form>
           <form method="post" action="/containers/{{ container.id }}/stop"><button class="btn-stop">Stop</button></form>
           <form method="post" action="/containers/{{ container.id }}/restart"><button class="btn-restart">Restart</button></form>
