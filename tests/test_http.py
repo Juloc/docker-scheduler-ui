@@ -72,6 +72,6 @@ def test_authenticated_container_workspace_is_available_without_docker(monkeypat
 
 
 def test_feature_routes_are_registered_after_main_extraction():
-    paths = {route.path for route in app.routes}
+    paths = {route.path for route in app.routes if hasattr(route, "path")}
     for expected in {"/", "/containers", "/groups", "/schedules", "/nas", "/logs", "/settings"}:
         assert expected in paths
