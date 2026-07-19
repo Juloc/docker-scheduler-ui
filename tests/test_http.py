@@ -15,6 +15,14 @@ def _client(monkeypatch, tmp_path: Path) -> TestClient:
     return TestClient(app)
 
 
+def _login(client: TestClient, next_path: str = "/"):
+    return client.post(
+        "/login",
+        data={"username": "admin", "password": "secret", "next": next_path},
+        follow_redirects=False,
+    )
+
+
 def test_unauthenticated_request_redirects_to_login(monkeypatch, tmp_path):
     with _client(monkeypatch, tmp_path) as client:
         response = client.get("/settings", follow_redirects=False)
@@ -25,11 +33,7 @@ def test_unauthenticated_request_redirects_to_login(monkeypatch, tmp_path):
 
 def test_form_login_and_settings_autosave_endpoint(monkeypatch, tmp_path):
     with _client(monkeypatch, tmp_path) as client:
-        login = client.post(
-            "/login",
-            data={"username": "admin", "password": "secret", "next": "/settings"},
-            follow_redirects=False,
-        )
+        login = _login(client, "/settings")
         assert login.status_code == 303
         assert login.headers["location"] == "/settings"
 
@@ -45,10 +49,7 @@ def test_form_login_and_settings_autosave_endpoint(monkeypatch, tmp_path):
 
 def test_cross_origin_state_change_is_rejected(monkeypatch, tmp_path):
     with _client(monkeypatch, tmp_path) as client:
-        client.post(
-            "/login",
-            data={"username": "admin", "password": "secret", "next": "/"},
-        )
+        _login(client)
         response = client.post(
             "/settings/preferences",
             data={"log_retention_days": "60"},
@@ -57,3 +58,20 @@ def test_cross_origin_state_change_is_rejected(monkeypatch, tmp_path):
 
     assert response.status_code == 403
     assert database.get_setting("log_retention_days") != "60"
+
+
+def test_authenticated_container_workspace_is_available_without_docker(monkeypatch, tmp_path):
+    with _client(monkeypatch, tmp_path) as client:
+        _login(client, "/containers")
+        response = client.get("/containers")
+
+    assert response.status_code == 200
+    assert "Containers" in response.text
+    assert "Group by Compose project" in response.text
+    assert "Hide infrastructure" in response.text
+
+
+def test_feature_routes_are_registered_after_main_extraction():
+    paths = {route.path for route in app.routes}
+    for expected in {"/", "/containers", "/groups", "/schedules", "/nas", "/logs", "/settings"}:
+        assert expected in paths
