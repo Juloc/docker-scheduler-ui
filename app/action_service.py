@@ -3,7 +3,7 @@ import time
 from typing import Callable
 
 from app import database, nas_service, notification_service
-from app.docker_ops import DockerOperationError, run_container_action, wait_for_container_healthy
+from app.docker_ops import DockerOperationError, get_container_info, run_container_action, wait_for_container_healthy
 
 
 NAS_GATED_GROUP_ACTIONS = {"start", "restart"}
@@ -61,6 +61,64 @@ def _target_refs(group: dict) -> list[str]:
     return [ref for ref in (_container_ref(item) for item in group.get("containers", [])) if ref]
 
 
+def _target_aliases(refs: list[str]) -> set[str]:
+    aliases: set[str] = set()
+    for ref in refs:
+        if not ref:
+            continue
+        aliases.add(str(ref).lower())
+        try:
+            info = get_container_info(ref)
+        except DockerOperationError:
+            continue
+        aliases.add(str(info.get("id") or "").lower())
+        aliases.add(str(info.get("short_id") or "").lower())
+        aliases.add(str(info.get("name") or "").lower())
+    return {alias for alias in aliases if alias}
+
+
+def _run_target_refs(run: dict) -> list[str]:
+    source_type = run.get("source_type")
+    source_id = str(run.get("source_id") or "")
+    if source_type == "container":
+        return [source_id]
+    if source_type == "group":
+        try:
+            group = database.get_group(int(source_id))
+        except (TypeError, ValueError):
+            group = None
+        return _target_refs(group or {})
+    if source_type == "schedule":
+        try:
+            schedule = database.get_schedule(int(source_id))
+        except (TypeError, ValueError):
+            schedule = None
+        if not schedule:
+            return []
+        if schedule.get("target_type") == "container":
+            return [str(schedule.get("target_id") or "")]
+        try:
+            group = database.get_group(int(schedule.get("target_id") or 0))
+        except (TypeError, ValueError):
+            group = None
+        return _target_refs(group or {})
+    return []
+
+
+def _find_conflicting_runs(targets: list[str], exclude_run_id: int | None = None) -> list[dict]:
+    wanted = _target_aliases(targets)
+    if not wanted:
+        return []
+    conflicts: list[dict] = []
+    for run in database.list_action_runs(limit=1000):
+        if run.get("status") != "running" or run.get("id") == exclude_run_id:
+            continue
+        active_aliases = _target_aliases(_run_target_refs(run))
+        if wanted.intersection(active_aliases):
+            conflicts.append(run)
+    return conflicts
+
+
 def _check_cancelled(run_id: int) -> None:
     if database.is_action_run_cancel_requested(run_id):
         raise RunCancelled("Run was cancelled before the next container action.")
@@ -74,7 +132,7 @@ def _interruptible_sleep(run_id: int, seconds: int) -> None:
 
 
 def _apply_conflict_policy(targets: list[str], policy: str, exclude_run_id: int | None = None) -> tuple[bool, str]:
-    conflicts = [run for run in database.find_running_actions_for_targets(targets) if run["id"] != exclude_run_id]
+    conflicts = _find_conflicting_runs(targets, exclude_run_id=exclude_run_id)
     if not conflicts:
         return True, ""
 
@@ -87,7 +145,7 @@ def _apply_conflict_policy(targets: list[str], policy: str, exclude_run_id: int 
     deadline = time.monotonic() + 15
     conflict_ids = {run["id"] for run in conflicts}
     while time.monotonic() < deadline:
-        remaining = [run for run in database.find_running_actions_for_targets(targets) if run["id"] in conflict_ids]
+        remaining = [run for run in _find_conflicting_runs(targets, exclude_run_id=exclude_run_id) if run["id"] in conflict_ids]
         if not remaining:
             return True, "Cancelled the previous conflicting run."
         time.sleep(0.25)
