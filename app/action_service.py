@@ -2,7 +2,7 @@ import threading
 import time
 from typing import Callable
 
-from app import database, nas_service
+from app import database, nas_service, notification_service
 from app.docker_ops import DockerOperationError, run_container_action, wait_for_container_healthy
 
 
@@ -22,6 +22,20 @@ def _run_async(target: Callable[[], None]) -> None:
 
 def _finish_run_failed(run_id: int, exc: Exception) -> None:
     database.finish_action_run(run_id, "failed", str(exc))
+    run = database.get_action_run(run_id) or {}
+    notification_service.send_event(
+        "run_failed",
+        "Docker scheduler run failed",
+        f"{run.get('target_label', 'Run')} · {run.get('action', 'action')}: {exc}",
+        {
+            "run_id": run_id,
+            "source_type": run.get("source_type"),
+            "source_id": run.get("source_id"),
+            "target": run.get("target_label"),
+            "action": run.get("action"),
+            "trigger": run.get("trigger_type"),
+        },
+    )
 
 
 def _finish_run_skipped(run_id: int, message: str) -> None:
