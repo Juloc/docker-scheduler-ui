@@ -3,12 +3,11 @@
 ## Now
 - [ ] Complete route extraction from `app/main.py` without introducing a rewrite.
 - [ ] Add broader integration coverage for HTTP forms, migrations, NAS/WOL and webhook flows.
-- [ ] Normalize container identity for conflict detection so ID-based manual actions and name-based group actions always collide correctly.
-- [ ] Finish a true Today / next-7-days agenda with repeated occurrences, not only each schedule's next run.
+- [ ] Wire the repeated-occurrence Today / next-7-days agenda engine into the Home UI.
 - [ ] Add optional infrastructure-container hiding and explicit Compose-project grouping controls.
+- [ ] Promote Containers from a Home anchor to a dedicated compact workspace.
 
 ## Next
-- [ ] Evaluate a dedicated `/containers` workspace while keeping Home focused on summary/quick actions.
 - [ ] Add webhook editing and optional successful-run notifications if real usage needs them.
 - [ ] Add richer automated accessibility/UI smoke checks.
 
@@ -34,13 +33,16 @@
 - [x] Settings auto-save and configuration export/import without detailed logs.
 - [x] Unified execution engine path for manual and scheduled actions.
 - [x] Reverse-stop, per-step delays, Docker health waiting, error policy and conflict policy.
+- [x] Container conflict identity normalized across full ID, short ID, name, manual runs, groups and schedules.
 - [x] Active-run progress and cancellation.
 - [x] Multi-NAS profiles and Wake-on-LAN with optional auto-wake.
+- [x] Wake-on-LAN packet generation and MAC validation covered by tests.
 - [x] Generic/Home Assistant/Discord webhook support with bounded retries and tests from Settings.
 - [x] Webhook events wired for run failures, NAS transitions and WOL failures.
 - [x] Detailed-log retention and compact long-term history.
 - [x] Favorite groups and Home quick actions.
 - [x] Container search/filter plus Compose metadata display.
+- [x] Repeated schedule occurrence engine for true seven-day agenda calculations.
 - [x] Latest GitHub Release detection in Settings > About without self-update.
 - [x] CI quality gate with lint, tests, compile check and Docker build.
 - [x] Tagged SemVer GHCR release automation.
