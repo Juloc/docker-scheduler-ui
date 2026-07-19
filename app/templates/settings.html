@@ -60,12 +60,14 @@
 
   <section class="panel settings-wide">
     <div class="panel-header"><div><h2>About</h2><p>Deployment and diagnostic information.</p></div></div>
-    <dl class="status-list about-list">
+    <dl class="status-list about-list" data-installed-version="{{ app_version }}">
       <div><dt>Installed version</dt><dd>v{{ app_version }}</dd></div>
+      <div><dt>Latest release</dt><dd id="latest-release">Checking…</dd></div>
       <div><dt>Build commit</dt><dd><code>{{ build_commit }}</code></dd></div>
       <div><dt>Runtime</dt><dd>FastAPI · SQLite · APScheduler · Docker SDK</dd></div>
     </dl>
-    <p class="form-help">Updates are deployed through Docker/GitOps. The application does not self-update.</p>
+    <div id="release-notes" class="release-notes" hidden></div>
+    <p class="form-help">Updates are detected from GitHub Releases and deployed through Docker/GitOps. The application does not self-update.</p>
   </section>
 </div>
 {% endblock %}
