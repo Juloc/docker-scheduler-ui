@@ -4,74 +4,100 @@
 <section class="section-header">
   <div>
     <h1>{% if group %}Edit Group{% else %}Create Group{% endif %}</h1>
-    <p>Groups store container names, so redeployments with the same name keep working.</p>
+    <p>Define dependency order once. Starts follow the order; stops run in reverse.</p>
   </div>
 </section>
 
 <form class="form" method="post" action="{% if group %}/groups/{{ group.id }}/edit{% else %}/groups/new{% endif %}">
-  <label>
-    Name
-    <input type="text" name="name" value="{{ group.name if group else '' }}" required>
-  </label>
-
-  <label>
-    Delay between containers (seconds)
-    <input type="number" min="0" name="delay_seconds" value="{{ group.delay_seconds if group else 5 }}">
-  </label>
-
-  <fieldset>
-    <legend>NAS dependency</legend>
-    <p class="form-help">Use this when a group depends on files or mounts from a NAS.</p>
-    <label class="checkbox">
-      <input type="checkbox" name="requires_nas" {% if group and group.requires_nas %}checked{% endif %}>
-      Require NAS before start/restart
+  <div class="form-grid two-col">
+    <label>
+      Name
+      <input type="text" name="name" value="{{ group.name if group else '' }}" required>
     </label>
-    <label class="checkbox">
-      <input type="checkbox" name="auto_start_on_nas_online" {% if group and group.auto_start_on_nas_online %}checked{% endif %}>
-      Auto-start this group when NAS becomes ready
+    <label>
+      Default delay between containers (seconds)
+      <input type="number" min="0" name="delay_seconds" value="{{ group.delay_seconds if group else 5 }}">
     </label>
-    <label class="checkbox">
-      <input type="checkbox" name="auto_stop_on_nas_offline" {% if group and group.auto_stop_on_nas_offline %}checked{% endif %}>
-      Auto-stop this group when NAS goes offline
-    </label>
-  </fieldset>
+  </div>
 
-  <h2>Container</h2>
+  <div class="checkbox-row">
+    <label class="checkbox"><input type="checkbox" name="favorite" {% if group and group.favorite %}checked{% endif %}>Show as Home quick action</label>
+    <label class="checkbox"><input type="checkbox" name="wait_for_healthy" {% if group and group.wait_for_healthy %}checked{% endif %}>Wait for Docker health before next start</label>
+  </div>
+
+  <details class="advanced-options" {% if group %}open{% endif %}>
+    <summary>Advanced execution options</summary>
+    <div class="form-grid two-col advanced-grid">
+      <label>
+        On container error
+        <select name="error_policy">
+          <option value="stop" {% if not group or group.error_policy != 'continue' %}selected{% endif %}>Stop group run</option>
+          <option value="continue" {% if group and group.error_policy == 'continue' %}selected{% endif %}>Continue and report failures</option>
+        </select>
+      </label>
+      <label>
+        If targets are already running an action
+        <select name="conflict_policy">
+          <option value="skip" {% if not group or group.conflict_policy != 'cancel_and_start' %}selected{% endif %}>Skip new run</option>
+          <option value="cancel_and_start" {% if group and group.conflict_policy == 'cancel_and_start' %}selected{% endif %}>Cancel current run and start this one</option>
+        </select>
+      </label>
+      <label>
+        Health timeout (seconds)
+        <input type="number" min="1" name="health_timeout_seconds" value="{{ group.health_timeout_seconds if group else 60 }}">
+      </label>
+      <label>
+        NAS profile
+        <select name="nas_profile_id">
+          <option value="">None</option>
+          {% for profile in nas_profiles %}
+          <option value="{{ profile.id }}" {% if group and group.nas_profile_id == profile.id %}selected{% endif %}>{{ profile.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <fieldset>
+      <legend>NAS behavior</legend>
+      <label class="checkbox"><input type="checkbox" name="requires_nas" {% if group and group.requires_nas %}checked{% endif %}>Require assigned NAS before start/restart</label>
+      <label class="checkbox"><input type="checkbox" name="auto_start_on_nas_online" {% if group and group.auto_start_on_nas_online %}checked{% endif %}>Auto-start when assigned NAS becomes ready</label>
+      <label class="checkbox"><input type="checkbox" name="auto_stop_on_nas_offline" {% if group and group.auto_stop_on_nas_offline %}checked{% endif %}>Auto-stop when assigned NAS goes offline</label>
+    </fieldset>
+  </details>
+
+  <div class="panel-header">
+    <div>
+      <h2>Container order</h2>
+      <p>Use the order fields or drag selected rows. Per-container delay overrides the group default.</p>
+    </div>
+  </div>
   <div class="table-wrap">
-    <table>
+    <table class="compact-table group-order-table">
       <thead>
-        <tr>
-          <th>Select</th>
-          <th>Order</th>
-          <th>Name</th>
-          <th>Image</th>
-          <th>Status</th>
-        </tr>
+        <tr><th>Select</th><th>Order</th><th>Name</th><th>Image</th><th>Status</th><th>Delay override</th></tr>
       </thead>
-      <tbody>
+      <tbody id="group-container-rows">
         {% for container in containers %}
-        <tr>
-          <td><input type="checkbox" name="containers" value="{{ container.name }}" {% if container.name in selected_containers %}checked{% endif %}></td>
-          <td><input class="small-input" type="number" min="1" name="order_{{ container.name }}" value="{{ selected_containers.get(container.name, loop.index) }}"></td>
+        {% set selected = selected_containers.get(container.name) %}
+        <tr draggable="true" data-group-row>
+          <td><input type="checkbox" name="containers" value="{{ container.name }}" {% if selected %}checked{% endif %}></td>
+          <td><input class="small-input group-order-input" type="number" min="1" name="order_{{ container.name }}" value="{{ selected.position if selected else loop.index }}"></td>
           <td>{{ container.name }}<br><span class="muted">{{ container.short_id }}</span></td>
-          <td>{{ container.image }}</td>
-          <td>{{ container.status }}</td>
+          <td><span class="truncate" title="{{ container.image }}">{{ container.image }}</span></td>
+          <td><span class="pill status-{{ container.status }}">{{ container.status }}</span></td>
+          <td><input class="small-input" type="number" min="0" name="delay_{{ container.name }}" value="{{ selected.delay_seconds if selected and selected.delay_seconds is not none else '' }}" placeholder="default"></td>
         </tr>
         {% endfor %}
         {% for container in missing_containers %}
-        <tr>
+        <tr draggable="true" data-group-row>
           <td><input type="checkbox" name="containers" value="{{ container.ref }}" checked></td>
-          <td><input class="small-input" type="number" min="1" name="order_{{ container.ref }}" value="{{ container.position }}"></td>
+          <td><input class="small-input group-order-input" type="number" min="1" name="order_{{ container.ref }}" value="{{ container.position }}"></td>
           <td>{{ container.name }}<br><span class="warning">not found</span></td>
-          <td>-</td>
-          <td>-</td>
+          <td>-</td><td>-</td>
+          <td><input class="small-input" type="number" min="0" name="delay_{{ container.ref }}" value="{{ container.delay_seconds if container.delay_seconds is not none else '' }}" placeholder="default"></td>
         </tr>
         {% endfor %}
-        {% if not containers and not missing_containers %}
-        <tr>
-          <td colspan="5" class="empty">No containers available.</td>
-        </tr>
-        {% endif %}
+        {% if not containers and not missing_containers %}<tr><td colspan="6" class="empty">No containers available.</td></tr>{% endif %}
       </tbody>
     </table>
   </div>
@@ -81,4 +107,8 @@
     <a class="button secondary" href="/groups">Cancel</a>
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', path='/group-form.js') }}?v={{ asset_version }}"></script>
 {% endblock %}

@@ -2,11 +2,17 @@ import threading
 import time
 from typing import Callable
 
-from app import database, nas_service
-from app.docker_ops import DockerOperationError, run_container_action
+from app import database, nas_service, notification_service
+from app.docker_ops import DockerOperationError, get_container_info, run_container_action, wait_for_container_healthy
 
 
 NAS_GATED_GROUP_ACTIONS = {"start", "restart"}
+CONFLICT_SKIP = "skip"
+CONFLICT_CANCEL_AND_START = "cancel_and_start"
+
+
+class RunCancelled(RuntimeError):
+    pass
 
 
 def _run_async(target: Callable[[], None]) -> None:
@@ -16,17 +22,139 @@ def _run_async(target: Callable[[], None]) -> None:
 
 def _finish_run_failed(run_id: int, exc: Exception) -> None:
     database.finish_action_run(run_id, "failed", str(exc))
+    run = database.get_action_run(run_id) or {}
+    notification_service.send_event(
+        "run_failed",
+        "Docker scheduler run failed",
+        f"{run.get('target_label', 'Run')} · {run.get('action', 'action')}: {exc}",
+        {
+            "run_id": run_id,
+            "source_type": run.get("source_type"),
+            "source_id": run.get("source_id"),
+            "target": run.get("target_label"),
+            "action": run.get("action"),
+            "trigger": run.get("trigger_type"),
+        },
+    )
 
 
 def _finish_run_skipped(run_id: int, message: str) -> None:
     database.finish_action_run(run_id, "skipped", message)
 
 
+def _finish_run_cancelled(run_id: int, message: str = "Run was cancelled.") -> None:
+    database.finish_action_run(run_id, "cancelled", message)
+
+
 def _container_ref(item: dict) -> str:
     return item.get("container_name") or item.get("container_id") or ""
 
 
+def _ordered_group_items(group: dict, action: str) -> list[dict]:
+    items = list(group.get("containers", []))
+    if action == "stop":
+        items.reverse()
+    return items
+
+
+def _target_refs(group: dict) -> list[str]:
+    return [ref for ref in (_container_ref(item) for item in group.get("containers", [])) if ref]
+
+
+def _target_aliases(refs: list[str]) -> set[str]:
+    aliases: set[str] = set()
+    for ref in refs:
+        if not ref:
+            continue
+        aliases.add(str(ref).lower())
+        try:
+            info = get_container_info(ref)
+        except DockerOperationError:
+            continue
+        aliases.add(str(info.get("id") or "").lower())
+        aliases.add(str(info.get("short_id") or "").lower())
+        aliases.add(str(info.get("name") or "").lower())
+    return {alias for alias in aliases if alias}
+
+
+def _run_target_refs(run: dict) -> list[str]:
+    source_type = run.get("source_type")
+    source_id = str(run.get("source_id") or "")
+    if source_type == "container":
+        return [source_id]
+    if source_type == "group":
+        try:
+            group = database.get_group(int(source_id))
+        except (TypeError, ValueError):
+            group = None
+        return _target_refs(group or {})
+    if source_type == "schedule":
+        try:
+            schedule = database.get_schedule(int(source_id))
+        except (TypeError, ValueError):
+            schedule = None
+        if not schedule:
+            return []
+        if schedule.get("target_type") == "container":
+            return [str(schedule.get("target_id") or "")]
+        try:
+            group = database.get_group(int(schedule.get("target_id") or 0))
+        except (TypeError, ValueError):
+            group = None
+        return _target_refs(group or {})
+    return []
+
+
+def _find_conflicting_runs(targets: list[str], exclude_run_id: int | None = None) -> list[dict]:
+    wanted = _target_aliases(targets)
+    if not wanted:
+        return []
+    conflicts: list[dict] = []
+    for run in database.list_action_runs(limit=1000):
+        if run.get("status") != "running" or run.get("id") == exclude_run_id:
+            continue
+        active_aliases = _target_aliases(_run_target_refs(run))
+        if wanted.intersection(active_aliases):
+            conflicts.append(run)
+    return conflicts
+
+
+def _check_cancelled(run_id: int) -> None:
+    if database.is_action_run_cancel_requested(run_id):
+        raise RunCancelled("Run was cancelled before the next container action.")
+
+
+def _interruptible_sleep(run_id: int, seconds: int) -> None:
+    deadline = time.monotonic() + max(0, seconds)
+    while time.monotonic() < deadline:
+        _check_cancelled(run_id)
+        time.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
+
+
+def _apply_conflict_policy(targets: list[str], policy: str, exclude_run_id: int | None = None) -> tuple[bool, str]:
+    conflicts = _find_conflicting_runs(targets, exclude_run_id=exclude_run_id)
+    if not conflicts:
+        return True, ""
+
+    if policy != CONFLICT_CANCEL_AND_START:
+        return False, "Skipped because one or more target containers are already controlled by a running action."
+
+    for run in conflicts:
+        database.request_action_run_cancel(run["id"])
+
+    deadline = time.monotonic() + 15
+    conflict_ids = {run["id"] for run in conflicts}
+    while time.monotonic() < deadline:
+        remaining = [run for run in _find_conflicting_runs(targets, exclude_run_id=exclude_run_id) if run["id"] in conflict_ids]
+        if not remaining:
+            return True, "Cancelled the previous conflicting run."
+        time.sleep(0.25)
+
+    return False, "Could not cancel the previous conflicting run before timeout."
+
+
 def _execute_container_step(run_id: int, position: int, container_ref: str, action: str) -> None:
+    _check_cancelled(run_id)
     step_id = database.create_action_step(run_id, position, "container", container_ref, action)
     try:
         message = run_container_action(container_ref, action)
@@ -37,25 +165,64 @@ def _execute_container_step(run_id: int, position: int, container_ref: str, acti
 
 
 def _execute_group_steps(run_id: int, group: dict, action: str) -> None:
-    containers = group.get("containers", [])
+    containers = _ordered_group_items(group, action)
     if not containers:
         raise DockerOperationError("Group contains no containers.")
 
-    delay_seconds = max(0, int(group.get("delay_seconds") or 0))
+    error_policy = str(group.get("error_policy") or "stop")
+    wait_for_healthy = bool(group.get("wait_for_healthy")) and action in {"start", "restart"}
+    health_timeout = max(1, int(group.get("health_timeout_seconds") or 60))
+    failures: list[str] = []
+
     for index, item in enumerate(containers, start=1):
+        _check_cancelled(run_id)
         ref = _container_ref(item)
         if not ref:
             raise DockerOperationError("Group contains a container without name or id.")
-        _execute_container_step(run_id, index, ref, action)
-        if delay_seconds and index < len(containers):
-            time.sleep(delay_seconds)
+
+        try:
+            _execute_container_step(run_id, index, ref, action)
+        except RunCancelled:
+            raise
+        except Exception as exc:
+            failures.append(f"{ref}: {exc}")
+            if error_policy != "continue":
+                raise
+
+        if index >= len(containers):
+            continue
+
+        delay_seconds = item.get("delay_seconds")
+        if delay_seconds is None:
+            delay_seconds = group.get("delay_seconds") or 0
+        delay_seconds = max(0, int(delay_seconds))
+
+        if wait_for_healthy and not failures:
+            health_result = wait_for_container_healthy(ref, timeout_seconds=health_timeout)
+            if health_result == "no-healthcheck" and delay_seconds:
+                _interruptible_sleep(run_id, delay_seconds)
+        elif delay_seconds:
+            _interruptible_sleep(run_id, delay_seconds)
+
+    if failures:
+        raise DockerOperationError("Group completed with errors: " + "; ".join(failures))
 
 
 def _group_requires_nas_gate(group: dict, action: str) -> bool:
     return bool(group.get("requires_nas")) and action in NAS_GATED_GROUP_ACTIONS
 
 
-def start_container_run(container_ref: str, action: str, background: bool = True) -> int:
+def _finish_execution(run_id: int, execute: Callable[[], None]) -> None:
+    try:
+        execute()
+        database.finish_action_run(run_id, "success")
+    except RunCancelled as exc:
+        _finish_run_cancelled(run_id, str(exc))
+    except Exception as exc:
+        _finish_run_failed(run_id, exc)
+
+
+def start_container_run(container_ref: str, action: str, background: bool = True, conflict_policy: str = CONFLICT_SKIP) -> int:
     run_id = database.create_action_run(
         source_type="container",
         source_id=container_ref,
@@ -65,11 +232,11 @@ def start_container_run(container_ref: str, action: str, background: bool = True
     )
 
     def execute() -> None:
-        try:
-            _execute_container_step(run_id, 1, container_ref, action)
-            database.finish_action_run(run_id, "success")
-        except Exception as exc:
-            _finish_run_failed(run_id, exc)
+        allowed, message = _apply_conflict_policy([container_ref], conflict_policy, exclude_run_id=run_id)
+        if not allowed:
+            _finish_run_skipped(run_id, message)
+            return
+        _finish_execution(run_id, lambda: _execute_container_step(run_id, 1, container_ref, action))
 
     if background:
         _run_async(execute)
@@ -84,6 +251,7 @@ def start_group_run(
     background: bool = True,
     trigger_type: str = "manual",
     check_nas: bool = True,
+    conflict_policy: str | None = None,
 ) -> int:
     group = database.get_group(group_id)
     if not group:
@@ -98,16 +266,20 @@ def start_group_run(
     )
 
     def execute() -> None:
-        try:
+        policy = conflict_policy or group.get("conflict_policy") or CONFLICT_SKIP
+        allowed, message = _apply_conflict_policy(_target_refs(group), policy, exclude_run_id=run_id)
+        if not allowed:
+            _finish_run_skipped(run_id, message)
+            return
+
+        def perform() -> None:
             if check_nas and _group_requires_nas_gate(group, action):
-                ready, message = nas_service.require_ready()
+                ready, nas_message = nas_service.require_ready(group.get("nas_profile_id"), auto_wake=True)
                 if not ready:
-                    _finish_run_skipped(run_id, f"NAS is not ready: {message}")
-                    return
+                    raise DockerOperationError(f"NAS is not ready: {nas_message}")
             _execute_group_steps(run_id, group, action)
-            database.finish_action_run(run_id, "success")
-        except Exception as exc:
-            _finish_run_failed(run_id, exc)
+
+        _finish_execution(run_id, perform)
 
     if background:
         _run_async(execute)
@@ -131,23 +303,26 @@ def start_schedule_run(schedule_id: int, trigger_type: str, background: bool = T
     )
 
     def execute() -> None:
-        try:
-            group = None
-            if schedule["target_type"] == "group":
-                group = database.get_group(int(schedule["target_id"]))
-                if not group:
-                    raise DockerOperationError("Schedule group target was not found.")
+        group = None
+        targets = [schedule["target_id"]]
+        if schedule["target_type"] == "group":
+            group = database.get_group(int(schedule["target_id"]))
+            if not group:
+                _finish_run_failed(run_id, DockerOperationError("Schedule group target was not found."))
+                return
+            targets = _target_refs(group)
 
-            if schedule.get("require_nas"):
-                ready, message = nas_service.require_ready()
+        allowed, message = _apply_conflict_policy(targets, schedule.get("conflict_policy") or CONFLICT_SKIP, exclude_run_id=run_id)
+        if not allowed:
+            _finish_run_skipped(run_id, message)
+            return
+
+        def perform() -> None:
+            profile_id = schedule.get("nas_profile_id") or (group.get("nas_profile_id") if group else None)
+            if schedule.get("require_nas") or (group and _group_requires_nas_gate(group, schedule["action"])):
+                ready, nas_message = nas_service.require_ready(profile_id, auto_wake=True)
                 if not ready:
-                    _finish_run_skipped(run_id, f"NAS is not ready: {message}")
-                    return
-            elif group and _group_requires_nas_gate(group, schedule["action"]):
-                ready, message = nas_service.require_ready()
-                if not ready:
-                    _finish_run_skipped(run_id, f"NAS is not ready: {message}")
-                    return
+                    raise DockerOperationError(f"NAS is not ready: {nas_message}")
 
             if schedule["target_type"] == "container":
                 _execute_container_step(run_id, 1, schedule["target_id"], schedule["action"])
@@ -155,12 +330,19 @@ def start_schedule_run(schedule_id: int, trigger_type: str, background: bool = T
                 _execute_group_steps(run_id, group, schedule["action"])
             else:
                 raise DockerOperationError("Invalid schedule target.")
-            database.finish_action_run(run_id, "success")
-        except Exception as exc:
-            _finish_run_failed(run_id, exc)
+
+        _finish_execution(run_id, perform)
 
     if background:
         _run_async(execute)
     else:
         execute()
     return run_id
+
+
+def cancel_run(run_id: int) -> bool:
+    run = database.get_action_run(run_id)
+    if not run or run.get("status") != "running":
+        return False
+    database.request_action_run_cancel(run_id)
+    return True

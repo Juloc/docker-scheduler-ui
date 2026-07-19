@@ -4,75 +4,40 @@
 <section class="section-header">
   <div>
     <h1>Run #{{ run.id }}</h1>
-    <p>{{ run.target_label }} - {{ run.action }} - {{ run.trigger_type }}</p>
+    <p>{{ run.target_label }} · {{ run.action }} · {{ run.trigger_type }}</p>
   </div>
   <div class="actions">
-    {% if run.source_type == 'group' %}
-    <a class="button secondary" href="/groups">Back to Groups</a>
-    {% elif run.source_type == 'schedule' %}
-    <a class="button secondary" href="/schedules">Back to Schedules</a>
-    {% else %}
-    <a class="button secondary" href="/">Back to Dashboard</a>
+    {% if run.status == 'running' %}
+    <form method="post" action="/runs/{{ run.id }}/cancel"><button class="danger" type="submit">Cancel run</button></form>
     {% endif %}
+    <a class="button secondary" href="/logs">All logs</a>
   </div>
 </section>
 
 <section class="panel">
   <div class="run-summary">
-    <div>
-      <span class="detail-label">Status</span>
-      <span class="pill status-{{ run.status }}">{{ run.status }}</span>
-    </div>
-    <div>
-      <span class="detail-label">Started</span>
-      <strong>{{ run.started_at }}</strong>
-    </div>
-    <div>
-      <span class="detail-label">Finished</span>
-      <strong>{{ run.finished_at if run.finished_at else '-' }}</strong>
-    </div>
+    <div><span class="detail-label">Status</span><span class="pill status-{{ run.status }}">{{ run.status }}</span></div>
+    <div><span class="detail-label">Started</span><strong>{{ run.started_at }}</strong></div>
+    <div><span class="detail-label">Finished</span><strong>{{ run.finished_at if run.finished_at else '-' }}</strong></div>
+    <div><span class="detail-label">Progress</span><strong>{{ steps|selectattr('status', 'equalto', 'success')|list|length }}/{{ steps|length }}</strong></div>
   </div>
-  {% if run.error %}
-  <div class="alert error">{{ run.error }}</div>
-  {% endif %}
+  {% if run.error %}<div class="alert error">{{ run.error }}</div>{% endif %}
+  {% if run.status == 'running' %}<p class="muted activity-line">Operation is active. This page refreshes automatically.</p>{% endif %}
 </section>
 
-<section class="panel">
-  <div class="panel-header">
-    <div>
-      <h2>Steps</h2>
-      <p>Each container action is logged separately.</p>
-    </div>
-  </div>
+<section class="panel flat-workspace">
+  <div class="panel-header"><div><h2>Steps</h2><p>Each container action is recorded separately.</p></div></div>
   <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Target</th>
-          <th>Action</th>
-          <th>Status</th>
-          <th>Started</th>
-          <th>Finished</th>
-          <th>Message</th>
-        </tr>
-      </thead>
+    <table class="compact-table">
+      <thead><tr><th>#</th><th>Target</th><th>Action</th><th>Status</th><th>Started</th><th>Finished</th><th>Message</th></tr></thead>
       <tbody>
         {% for step in steps %}
         <tr>
-          <td>{{ step.position }}</td>
-          <td>{{ step.target_name }}</td>
-          <td>{{ step.action }}</td>
+          <td>{{ step.position }}</td><td>{{ step.target_name }}</td><td>{{ step.action }}</td>
           <td><span class="pill status-{{ step.status }}">{{ step.status }}</span></td>
-          <td>{{ step.started_at }}</td>
-          <td>{{ step.finished_at if step.finished_at else '-' }}</td>
-          <td>{% if step.message %}{{ step.message }}{% else %}-{% endif %}</td>
+          <td>{{ step.started_at }}</td><td>{{ step.finished_at if step.finished_at else '-' }}</td><td>{{ step.message or '-' }}</td>
         </tr>
-        {% else %}
-        <tr>
-          <td colspan="7" class="empty">No steps have been written yet.</td>
-        </tr>
-        {% endfor %}
+        {% else %}<tr><td colspan="7" class="empty">No steps have been written yet.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
@@ -80,11 +45,5 @@
 {% endblock %}
 
 {% block scripts %}
-{% if run.status == 'running' %}
-<script>
-  window.setTimeout(function () {
-    window.location.reload();
-  }, 2000);
-</script>
-{% endif %}
+{% if run.status == 'running' %}<script>window.setTimeout(() => window.location.reload(), 1500);</script>{% endif %}
 {% endblock %}

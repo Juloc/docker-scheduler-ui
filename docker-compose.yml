@@ -1,6 +1,10 @@
 services:
   docker-scheduler-ui:
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+        APP_COMMIT: ${APP_COMMIT:-local}
     container_name: docker-scheduler-ui
     restart: unless-stopped
     ports:
@@ -9,7 +13,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/app/data
     environment:
-      AUTH_MODE: ${AUTH_MODE:-basic}
+      AUTH_MODE: ${AUTH_MODE:-form}
       APP_USER: ${APP_USER:?Set APP_USER}
       APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD}
       APP_SECRET: ${APP_SECRET:?Set APP_SECRET}

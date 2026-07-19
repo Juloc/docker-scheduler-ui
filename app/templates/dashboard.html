@@ -1,173 +1,54 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="dashboard-hero">
+<section class="section-header home-header">
   <div>
-    <h1>Container</h1>
-    <p>Overview, actions, and logs for all Docker containers.</p>
+    <h1>Home</h1>
+    <p>Docker scheduler status, upcoming actions and quick controls.</p>
   </div>
-  <div class="stats-grid">
-    <div class="stat-card">
-      <span>Container</span>
-      <strong>{{ stats.total }}</strong>
-    </div>
-    <div class="stat-card good">
-      <span>Running</span>
-      <strong>{{ stats.running }}</strong>
-    </div>
-    <div class="stat-card">
-      <span>Stopped</span>
-      <strong>{{ stats.stopped }}</strong>
-    </div>
-    <div class="stat-card">
-      <span>With Ports</span>
-      <strong>{{ stats.with_ports }}</strong>
-    </div>
-  </div>
+  <a class="button secondary" href="/containers">Open Containers</a>
 </section>
 
-<section class="dashboard-toolbar" aria-label="Container filter">
-  <label class="search-box">
-    <span>Search</span>
-    <input id="container-search" type="search" placeholder="Name, Image, Status..." autocomplete="off">
-  </label>
-  <div class="status-tabs" aria-label="Status filter">
-    <button type="button" class="active" data-status-filter="all">All</button>
-    <button type="button" data-status-filter="running">Running</button>
-    <button type="button" data-status-filter="stopped">Stopped</button>
-    <button type="button" data-status-filter="unhealthy">Unhealthy</button>
-  </div>
-  <span class="visible-count"><span id="visible-container-count">{{ stats.total }}</span> visible</span>
+<section class="control-grid" aria-label="System status">
+  <div class="dashboard-card"><span class="detail-label">Docker</span><strong>{{ stats.running }} / {{ stats.total }} running</strong><small>{{ stats.healthy }} healthy</small></div>
+  <div class="dashboard-card"><span class="detail-label">NAS</span><strong>{{ nas_profiles|selectattr('ready')|list|length }} / {{ nas_profiles|length }} ready</strong><small>{{ nas_profiles|length }} profile{% if nas_profiles|length != 1 %}s{% endif %}</small></div>
+  <div class="dashboard-card"><span class="detail-label">Next schedule</span><strong>{% if upcoming_schedules %}{{ upcoming_schedules[0].run_at_label }}{% else %}None{% endif %}</strong><small>{% if upcoming_schedules %}{{ upcoming_schedules[0].name }}{% else %}No active schedules{% endif %}</small></div>
+  <div class="dashboard-card"><span class="detail-label">Latest run</span><strong>{% if recent_runs %}{{ recent_runs[0].status }}{% else %}No runs{% endif %}</strong><small>{% if recent_runs %}{{ recent_runs[0].target_label }}{% else %}-{% endif %}</small></div>
 </section>
 
-<div class="table-wrap dashboard-table">
-  <table class="compact-table">
-    <colgroup>
-      <col class="col-name">
-      <col class="col-image">
-      <col class="col-status">
-      <col class="col-health">
-      <col class="col-restart">
-      <col class="col-actions">
-    </colgroup>
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Image</th>
-        <th>Status</th>
-        <th>Health</th>
-        <th>Restart Policy</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for container in containers %}
-      <tr
-        class="container-row"
-        data-container-row="{{ container.id }}"
-        data-status="{{ container.status }}"
-        data-health="{{ container.health }}"
-        data-search="{{ container.name }} {{ container.image }} {{ container.short_id }} {{ container.status }} {{ container.health }} {{ container.restart_policy }}"
-      >
-        <td class="name-cell">
-          <div class="name-stack">
-            <div class="container-name">{{ container.name }}</div>
-            <span class="muted">{{ container.short_id }}</span>
-          </div>
-        </td>
-        <td>
-          <div class="image-name truncate" title="{{ container.image }}">{{ container.image }}</div>
-        </td>
-        <td><span class="pill status-{{ container.status }}"><span class="status-dot"></span>{{ container.status }}</span></td>
-        <td>{% if container.health == 'healthy' %}<span class="pill ok"><span class="status-dot"></span>healthy</span>{% else %}<span class="muted">{{ container.health }}</span>{% endif %}</td>
-        <td>{{ container.restart_policy }}</td>
-        <td class="action-cell">
-          <div class="actions action-buttons">
-            <form method="post" action="/containers/{{ container.id }}/start"><button class="btn-start">Start</button></form>
-            <form method="post" action="/containers/{{ container.id }}/stop"><button class="btn-stop">Stop</button></form>
-            <form method="post" action="/containers/{{ container.id }}/restart"><button class="btn-restart">Restart</button></form>
-            <a class="button secondary" href="/containers/{{ container.id }}/logs">Logs</a>
-          </div>
-        </td>
-      </tr>
-      <tr class="container-detail-row" data-detail-for="{{ container.id }}">
-        <td colspan="6">
-          <details class="container-details" data-container-id="{{ container.id }}">
-            <summary>Details, ports, and log preview</summary>
-            <div class="detail-panel">
-              <div class="detail-grid">
-                <div>
-                  <span class="detail-label">Container ID</span>
-                  <code>{{ container.id }}</code>
-                </div>
-                <div>
-                  <span class="detail-label">Ports</span>
-                  <code>{{ container.ports }}</code>
-                </div>
-              </div>
-              <div class="log-preview">
-                <div class="log-preview-header">
-                  <div>
-                    <span class="detail-label">Log preview</span>
-                    <strong>Last 30 lines</strong>
-                  </div>
-                  <button type="button" class="secondary refresh-log-preview" data-container-id="{{ container.id }}">Reload</button>
-                </div>
-                <pre class="log-preview-output" data-log-output="{{ container.id }}">Not loaded yet.</pre>
-              </div>
-            </div>
-          </details>
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="6" class="empty">No containers found.</td>
-      </tr>
+<div class="home-two-column">
+  <section class="panel">
+    <div class="panel-header"><div><h2>Quick actions</h2><p>Favorite groups for common start/stop operations.</p></div><a class="button secondary" href="/groups">Manage</a></div>
+    {% if favorite_groups %}
+    <div class="quick-action-list">
+      {% for group in favorite_groups %}
+      <div class="quick-action-row">
+        <div><strong>{{ group.name }}</strong><span class="muted">{{ group.containers|length }} containers</span></div>
+        <div class="actions action-buttons">
+          <form method="post" action="/groups/{{ group.id }}/start"><button class="primary">Start</button></form>
+          <form method="post" action="/groups/{{ group.id }}/stop"><button>Stop</button></form>
+          <form method="post" action="/groups/{{ group.id }}/restart"><button>Restart</button></form>
+        </div>
+      </div>
       {% endfor %}
-    </tbody>
-  </table>
+    </div>
+    {% else %}<p class="empty">Mark groups as Home quick actions to show them here.</p>{% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-header"><div><h2>Today / next 7 days</h2><p>Every actual occurrence, including recurring schedules.</p></div><a class="button secondary" href="/schedules">Schedules</a></div>
+    {% if upcoming_schedules %}
+    <div class="agenda-list">
+      {% for occurrence in upcoming_schedules %}
+      <div class="agenda-row"><time>{{ occurrence.date_label }} · {{ occurrence.time_label }}</time><div><strong>{{ occurrence.name }}</strong><span class="muted">{{ occurrence.action }} · {{ occurrence.target_label }}</span></div></div>
+      {% endfor %}
+    </div>
+    {% else %}<p class="empty">No enabled schedules in the next seven days.</p>{% endif %}
+  </section>
 </div>
 
 <section class="panel run-log-panel">
-  <div class="panel-header">
-    <div>
-      <h2>Recent Container Runs</h2>
-      <p>Manual container actions with detailed status.</p>
-    </div>
-  </div>
-  {% if recent_runs %}
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Started</th>
-          <th>Container</th>
-          <th>Action</th>
-          <th>Status</th>
-          <th>Error</th>
-          <th>Log</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for run in recent_runs %}
-        <tr>
-          <td>{{ run.started_at }}</td>
-          <td>{{ run.target_label }}</td>
-          <td>{{ run.action }}</td>
-          <td><span class="pill status-{{ run.status }}">{{ run.status }}</span></td>
-          <td>{% if run.error %}<span class="warning">{{ run.error }}</span>{% else %}-{% endif %}</td>
-          <td><a class="button secondary" href="/runs/{{ run.id }}">Open</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="empty">No container runs yet.</p>
-  {% endif %}
+  <div class="panel-header"><div><h2>Recent activity</h2><p>Latest actions across containers, groups, schedules and NAS automation.</p></div><a class="button secondary" href="/logs">All logs</a></div>
+  {% if recent_runs %}<div class="table-wrap"><table class="compact-table"><thead><tr><th>Started</th><th>Target</th><th>Action</th><th>Status</th><th></th></tr></thead><tbody>{% for run in recent_runs %}<tr><td>{{ run.started_at }}</td><td>{{ run.target_label }}</td><td>{{ run.action }}</td><td><span class="pill status-{{ run.status }}">{{ run.status }}</span></td><td><a class="button secondary" href="/runs/{{ run.id }}">Open</a></td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty">No runs yet.</p>{% endif %}
 </section>
-{% endblock %}
-
-{% block scripts %}
-<script src="{{ url_for('static', path='/dashboard.js') }}?v={{ asset_version }}"></script>
 {% endblock %}

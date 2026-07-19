@@ -18,8 +18,8 @@ class AuthConfigurationError(RuntimeError):
 
 
 def get_auth_mode() -> str:
-    mode = os.getenv("AUTH_MODE", "basic").strip().lower()
-    return mode if mode in {"basic", "form"} else "basic"
+    mode = os.getenv("AUTH_MODE", "form").strip().lower()
+    return mode if mode in {"basic", "form"} else "form"
 
 
 def configuration_error() -> str | None:

@@ -39,7 +39,6 @@ def _image_name(container: Any) -> str:
 def _format_ports(ports: dict | None) -> str:
     if not ports:
         return "-"
-
     parts: list[str] = []
     for private_port, mappings in sorted(ports.items()):
         if not mappings:
@@ -68,9 +67,16 @@ def _health(attrs: dict) -> str:
     return health.get("Status") or "-"
 
 
+def _has_healthcheck(attrs: dict) -> bool:
+    healthcheck = attrs.get("Config", {}).get("Healthcheck") or {}
+    test = healthcheck.get("Test") or []
+    return bool(test and test != ["NONE"])
+
+
 def _container_info(container: Any) -> dict:
     attrs = container.attrs
     state = attrs.get("State", {})
+    labels = attrs.get("Config", {}).get("Labels") or {}
     return {
         "id": container.id,
         "short_id": container.short_id,
@@ -78,8 +84,11 @@ def _container_info(container: Any) -> dict:
         "image": _image_name(container),
         "status": state.get("Status") or container.status,
         "health": _health(attrs),
+        "has_healthcheck": _has_healthcheck(attrs),
         "ports": _format_ports(attrs.get("NetworkSettings", {}).get("Ports")),
         "restart_policy": _restart_policy(attrs),
+        "compose_project": labels.get("com.docker.compose.project") or "",
+        "compose_service": labels.get("com.docker.compose.service") or "",
     }
 
 
@@ -87,7 +96,7 @@ def list_containers() -> list[dict]:
     client = _client()
     try:
         containers = client.containers.list(all=True)
-        return sorted((_container_info(container) for container in containers), key=lambda item: item["name"])
+        return sorted((_container_info(container) for container in containers), key=lambda item: item["name"].lower())
     except DockerException as exc:
         raise DockerOperationError(f"Could not read Docker containers: {exc}") from exc
     finally:
@@ -106,11 +115,40 @@ def get_container_info(container_id: str) -> dict:
         _close_client(client)
 
 
-def run_container_action(
-    container_id: str,
-    action: str,
-    client: docker.DockerClient | None = None,
-) -> str:
+def wait_for_container_healthy(container_id: str, timeout_seconds: int = 60, poll_seconds: float = 1.0) -> str:
+    """Wait until a Docker healthcheck reports healthy.
+
+    Containers without a healthcheck return immediately so callers can use their
+    normal delay fallback. An unhealthy status fails immediately; a starting
+    status is polled until timeout.
+    """
+    deadline = time.monotonic() + max(1, timeout_seconds)
+    client = _client()
+    try:
+        container = client.containers.get(container_id)
+        container.reload()
+        if not _has_healthcheck(container.attrs):
+            return "no-healthcheck"
+
+        while True:
+            container.reload()
+            status = _health(container.attrs)
+            if status == "healthy":
+                return "healthy"
+            if status == "unhealthy":
+                raise DockerOperationError(f"Container {container.name} became unhealthy.")
+            if time.monotonic() >= deadline:
+                raise DockerOperationError(f"Timed out waiting for {container.name} to become healthy.")
+            time.sleep(max(0.1, poll_seconds))
+    except NotFound as exc:
+        raise DockerOperationError("Container was not found.") from exc
+    except DockerException as exc:
+        raise DockerOperationError(f"Docker error while waiting for health: {exc}") from exc
+    finally:
+        _close_client(client)
+
+
+def run_container_action(container_id: str, action: str, client: docker.DockerClient | None = None) -> str:
     if action not in VALID_ACTIONS:
         raise DockerOperationError("Invalid action.")
 
@@ -138,24 +176,26 @@ def run_container_action(
 
 
 def run_group_action(group_id: int, action: str) -> str:
+    """Compatibility wrapper; new code should use action_service."""
     if action not in VALID_ACTIONS:
         raise DockerOperationError("Invalid action.")
-
     group = database.get_group(group_id)
     if not group:
         raise DockerOperationError("Group was not found.")
     if not group["containers"]:
         raise DockerOperationError("Group contains no containers.")
 
+    items = list(group["containers"])
+    if action == "stop":
+        items.reverse()
     client = _client()
     messages: list[str] = []
     delay_seconds = max(0, int(group["delay_seconds"] or 0))
-
     try:
-        for index, item in enumerate(group["containers"]):
+        for index, item in enumerate(items):
             container_ref = item.get("container_name") or item["container_id"]
             messages.append(run_container_action(container_ref, action, client=client))
-            if delay_seconds and index < len(group["containers"]) - 1:
+            if delay_seconds and index < len(items) - 1:
                 time.sleep(delay_seconds)
         return " ".join(messages)
     finally:

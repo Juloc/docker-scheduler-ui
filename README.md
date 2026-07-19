@@ -4,23 +4,24 @@ A small FastAPI web UI for viewing Docker containers, managing ordered container
 
 ## Features
 
+- Fluent 2 / Windows 11 inspired desktop-first UI with persistent `System` / `Dark` / `Light` theme
 - Lists all Docker containers, including stopped containers
 - Container actions: start, stop, restart, logs
-- Ordered container groups with delay between containers
-- Group actions with per-container execution logs
-- Schedules for containers or groups
-- Daily schedules or selected weekdays
-- Manual schedule runs with detailed run logs
-- Lazy log preview on the dashboard
-- Optional NAS guard for groups and schedules:
-  - ping-based NAS reachability checks
-  - optional mount path checks
-  - block start/restart for NAS-dependent groups while NAS is unavailable
-  - auto-start and auto-stop selected groups on NAS status changes
-- SQLite persistence in `/app/data/app.db`
-- Configurable authentication:
-  - `AUTH_MODE=basic` for browser Basic Auth
-  - `AUTH_MODE=form` for the built-in login page
+- Ordered container groups with reverse stop order and per-container delay overrides
+- Optional Docker health waiting before the next group step
+- Group error policy: stop or continue
+- Conflict policy: skip a new run or cancel the conflicting run and start the new one
+- Manual run cancellation with detailed per-container progress
+- Schedules for containers or groups, daily or selected weekdays
+- Multiple NAS profiles with ping/mount readiness checks
+- Wake-on-LAN with optional automatic wake before dependent actions
+- Optional NAS-triggered group auto-start/auto-stop
+- Generic webhook support with Home Assistant and Discord payload presets
+- SQLite persistence with ordered schema migrations and pre-migration backups
+- Configuration export/restore without detailed run logs
+- Detailed log retention with compact long-term history
+- Form login by default; Basic Auth remains optional
+- Semantic version/build metadata and tagged GHCR release workflow
 
 The app intentionally does not expose destructive Docker operations such as container removal, volume deletion, image prune, or system prune.
 
@@ -29,41 +30,7 @@ The app intentionally does not expose destructive Docker operations such as cont
 ```yaml
 services:
   docker-scheduler-ui:
-    build: .
-    container_name: docker-scheduler-ui
-    restart: unless-stopped
-    ports:
-      - "8099:8099"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./data:/app/data
-    environment:
-      AUTH_MODE: ${AUTH_MODE:-basic}
-      APP_USER: ${APP_USER:?Set APP_USER}
-      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD}
-      APP_SECRET: ${APP_SECRET:?Set APP_SECRET}
-```
-
-Start it with:
-
-```bash
-docker compose up -d --build
-```
-
-Open:
-
-```text
-http://localhost:8099
-```
-
-## Image-based GitOps Compose
-
-If you publish the image to a registry, use an image-only Compose file in a separate GitOps repository:
-
-```yaml
-services:
-  docker-scheduler-ui:
-    image: ghcr.io/<owner>/docker-scheduler-ui:latest
+    image: ghcr.io/juloc/docker-scheduler-ui:latest
     container_name: docker-scheduler-ui
     restart: unless-stopped
     ports:
@@ -72,17 +39,19 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/docker-scheduler-ui/data:/app/data
     environment:
-      AUTH_MODE: ${AUTH_MODE:-basic}
+      AUTH_MODE: ${AUTH_MODE:-form}
       APP_USER: ${APP_USER:?Set APP_USER}
       APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD}
       APP_SECRET: ${APP_SECRET:?Set APP_SECRET}
 ```
 
-Create the host data directory before deploying:
+Create the persistent data directory before deployment:
 
 ```bash
 sudo mkdir -p /opt/docker-scheduler-ui/data
 ```
+
+Open `http://<host>:8099`.
 
 ## Configuration
 
@@ -90,71 +59,62 @@ sudo mkdir -p /opt/docker-scheduler-ui/data
 | --- | --- | --- |
 | `APP_USER` | required | Login username |
 | `APP_PASSWORD` | required | Login password |
-| `AUTH_MODE` | `basic` | `basic` for browser auth, `form` for the built-in login page |
-| `APP_SECRET` | required by the provided Compose files | Secret used to sign form-login session cookies |
-| `AUTH_SESSION_SECONDS` | `43200` | Form-login session duration in seconds |
-| `AUTH_COOKIE_SECURE` | `false` | Set to `true` when serving the app over HTTPS |
+| `AUTH_MODE` | `form` | `form` for built-in login, `basic` for browser Basic Auth |
+| `APP_SECRET` | required for form login | Secret used to sign session cookies |
+| `AUTH_SESSION_SECONDS` | `43200` | Form-login session duration |
+| `AUTH_COOKIE_SECURE` | `false` | Set `true` behind HTTPS |
 | `APP_DB` | `/app/data/app.db` | SQLite database path |
+| `APP_VERSION` | build/version file | Optional runtime version override |
+| `APP_COMMIT` | `unknown` | Optional build commit identifier |
 
-Do not commit real credentials or secrets. Set them as environment variables in your deployment system.
+Generate a suitable secret with `openssl rand -hex 32`.
 
-Generate a suitable `APP_SECRET` with:
+## Persistence and backup
 
-```bash
-openssl rand -hex 32
-```
+Groups, schedules, NAS profiles, webhooks, settings and run history are stored in SQLite. Mount `/app/data` persistently.
 
-## Persistence
+Schema updates are versioned. Before a pending migration is applied, the current database is backed up under `/app/data/backups`.
 
-Groups, schedules, and run logs are stored in SQLite. Mount `/app/data` to keep data across container restarts.
+`Settings` provides configuration export/restore. Normal exports intentionally exclude detailed run logs.
 
-## Docker Socket Access
+## Docker socket access
 
-The Docker socket is required so the app can list containers and run start/stop/restart actions. Anyone with access to the UI can perform those Docker actions.
+The Docker socket is required to inspect containers and perform start/stop/restart operations. Access to this UI must be treated as privileged because Docker socket access is effectively host-level control.
 
-## NAS Guard
+## NAS profiles and Wake-on-LAN
 
-NAS checks are configured in the web UI under **NAS**. The app can ping a configured host or IP address and can also verify that configured mount paths exist.
+NAS profiles are configured under **NAS**. Each profile can use:
 
-Mount checks only work for paths that are visible inside the `docker-scheduler-ui` container. If you want the app to verify host paths, mount those paths into the app container, for example:
+- ping reachability
+- optional mount paths visible inside this application container
+- Wake-on-LAN with MAC address
+- optional automatic wake before a dependent group/schedule starts
+- auto-start/auto-stop groups on readiness transitions
+
+Mount checks only work for paths visible inside the application container, for example:
 
 ```yaml
 volumes:
   - /var/run/docker.sock:/var/run/docker.sock
-  - ./data:/app/data
+  - /opt/docker-scheduler-ui/data:/app/data
   - /mnt/nas:/mnt/nas:ro
 ```
 
-Group options:
-
-- **Require NAS before start/restart** skips start or restart actions when NAS is not ready.
-- **Auto-start this group when NAS becomes ready** starts the group when NAS changes from not ready to ready.
-- **Auto-stop this group when NAS goes offline** stops the group when NAS changes from ready to not ready.
-
-Schedule option:
-
-- **Require NAS to be ready before running** skips the schedule when NAS is not ready.
-
-Skipped runs are written to the run log with status `skipped`.
-
-## Local Development
+## Development
 
 ```bash
 python -m venv .venv
 . .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 APP_DB=./data/app.db APP_USER=local-user APP_PASSWORD=local-password APP_SECRET=local-secret uvicorn app.main:app --reload --port 8099
 ```
 
-Windows PowerShell:
+Quality checks:
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-$env:APP_DB="./data/app.db"
-$env:APP_USER="local-user"
-$env:APP_PASSWORD="local-password"
-$env:APP_SECRET="local-secret"
-uvicorn app.main:app --reload --port 8099
+```bash
+ruff check app tests
+pytest
+python -m compileall -q app
 ```
+
+See `AGENTS.md` and `docs/` for architecture, design, security, versioning, backlog and reusable project workflows.
