@@ -26,6 +26,18 @@ def _container_ref(item: dict) -> str:
     return item.get("container_name") or item.get("container_id") or ""
 
 
+def _ordered_group_items(group: dict, action: str) -> list[dict]:
+    """Return the execution order for a group action.
+
+    Start/restart use the configured dependency order. Stop runs in reverse so
+    dependants are stopped before the services they depend on.
+    """
+    items = list(group.get("containers", []))
+    if action == "stop":
+        items.reverse()
+    return items
+
+
 def _execute_container_step(run_id: int, position: int, container_ref: str, action: str) -> None:
     step_id = database.create_action_step(run_id, position, "container", container_ref, action)
     try:
@@ -37,7 +49,7 @@ def _execute_container_step(run_id: int, position: int, container_ref: str, acti
 
 
 def _execute_group_steps(run_id: int, group: dict, action: str) -> None:
-    containers = group.get("containers", [])
+    containers = _ordered_group_items(group, action)
     if not containers:
         raise DockerOperationError("Group contains no containers.")
 
