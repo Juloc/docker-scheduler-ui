@@ -1,11 +1,8 @@
 # Backlog
 
 ## Now
-- [ ] Complete route extraction from `app/main.py` without introducing a rewrite.
-- [ ] Add broader integration coverage for HTTP forms, migrations, NAS/WOL and webhook flows.
-- [ ] Wire the repeated-occurrence Today / next-7-days agenda engine into the Home UI.
-- [ ] Add optional infrastructure-container hiding and explicit Compose-project grouping controls.
-- [ ] Promote Containers from a Home anchor to a dedicated compact workspace.
+
+No open modernization blockers.
 
 ## Next
 - [ ] Add webhook editing and optional successful-run notifications if real usage needs them.
@@ -14,14 +11,15 @@
 ## Later
 - [ ] Evaluate queued conflict policy if real usage requires it.
 - [ ] Optional richer webhook templates only when generic presets are insufficient.
+- [ ] Remove legacy single-NAS compatibility settings after a defined compatibility window.
+- [ ] Evaluate a dedicated execution worker only if real scale exceeds the lightweight in-process runner.
 
 ## Ideas
 - [ ] Additional non-destructive Docker status insights where they directly help scheduling.
 
 ## Tech Debt
-- [ ] `app/main.py` still combines too much routing/view composition and should be extracted gradually by feature area.
-- [ ] Legacy single-NAS compatibility settings remain temporarily for upgrade compatibility; remove only after a defined compatibility window.
-- [ ] Background execution still uses lightweight daemon threads; cancellation/conflict coordination is implemented, but a dedicated executor can be evaluated only if scale requires it.
+
+No known blocking tech debt for the modernization release. Compatibility code and possible future scaling work are tracked under Later rather than left as hidden TODOs.
 
 ## Done
 - [x] Product scope defined: focused Docker scheduler, not a general Docker/NAS control center.
@@ -37,12 +35,17 @@
 - [x] Active-run progress and cancellation.
 - [x] Multi-NAS profiles and Wake-on-LAN with optional auto-wake.
 - [x] Wake-on-LAN packet generation and MAC validation covered by tests.
-- [x] Generic/Home Assistant/Discord webhook support with bounded retries and tests from Settings.
+- [x] Generic/Home Assistant/Discord webhook support with bounded retries and test action.
 - [x] Webhook events wired for run failures, NAS transitions and WOL failures.
 - [x] Detailed-log retention and compact long-term history.
 - [x] Favorite groups and Home quick actions.
-- [x] Container search/filter plus Compose metadata display.
-- [x] Repeated schedule occurrence engine for true seven-day agenda calculations.
+- [x] Dedicated compact Containers workspace.
+- [x] Container search/status/project filters and Compose metadata.
+- [x] Explicit Compose-project grouping control.
+- [x] Optional infrastructure hiding using user-marked Compose projects stored locally in the browser.
+- [x] Repeated schedule occurrence engine wired into a true Today / next-seven-days Home agenda.
 - [x] Latest GitHub Release detection in Settings > About without self-update.
+- [x] Route/view helper extraction: `main.py` is limited to application assembly and middleware; feature routes live under `app/routes`.
+- [x] Expanded integration coverage for HTTP auth/settings, migrations, NAS/WOL, webhook filtering/delivery, scheduler recurrence and conflict handling.
 - [x] CI quality gate with lint, tests, compile check and Docker build.
 - [x] Tagged SemVer GHCR release automation.
