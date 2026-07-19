@@ -105,6 +105,7 @@ def dashboard_stats(containers: list[dict]) -> dict:
         "running": sum(1 for container in containers if container["status"] == "running"),
         "stopped": sum(1 for container in containers if container["status"] in {"exited", "created", "dead"}),
         "healthy": sum(1 for container in containers if container["health"] == "healthy"),
+        "unhealthy": sum(1 for container in containers if container["health"] == "unhealthy"),
         "with_ports": sum(1 for container in containers if container["ports"] != "-"),
     }
 
