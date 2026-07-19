@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section-header">
+  <div><h1>Logs</h1><p>Recent container, group, schedule and NAS-triggered runs.</p></div>
+</section>
+
+<section class="panel flat-workspace">
+  {% if runs %}
+  <div class="table-wrap"><table class="compact-table">
+    <thead><tr><th>Started</th><th>Target</th><th>Source</th><th>Action</th><th>Trigger</th><th>Status</th><th>Error</th><th></th></tr></thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td>{{ run.started_at }}</td><td>{{ run.target_label }}</td><td>{{ run.source_type }}</td><td>{{ run.action }}</td><td>{{ run.trigger_type }}</td>
+        <td><span class="pill status-{{ run.status }}">{{ run.status }}</span></td>
+        <td class="truncate">{{ run.error or '-' }}</td><td><a class="button secondary" href="/runs/{{ run.id }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="empty">No runs recorded yet.</p>{% endif %}
+</section>
+{% endblock %}
