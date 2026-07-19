@@ -3,7 +3,7 @@ from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app import action_service, database, nas_service
+from app import action_service, database, nas_service, notification_service
 
 
 scheduler = BackgroundScheduler()
@@ -119,6 +119,23 @@ def _run_nas_group_actions(groups: list[dict], action: str, trigger_type: str) -
             continue
 
 
+def _notify_nas_transition(event: str, status: dict) -> None:
+    name = status.get("name") or status.get("host") or "NAS"
+    message = "NAS is ready." if event == "nas_online" else (status.get("last_error") or "NAS is unavailable.")
+    notification_service.send_event(
+        event,
+        f"{name}: {'online' if event == 'nas_online' else 'offline'}",
+        message,
+        {
+            "profile_id": status.get("id"),
+            "host": status.get("host"),
+            "ready": status.get("ready"),
+            "host_online": status.get("host_online"),
+            "mounts_ok": status.get("mounts_ok"),
+        },
+    )
+
+
 def run_nas_monitor(profile_id: int | None = None) -> None:
     status_before = nas_service.current_status(profile_id)
     if not status_before["enabled"]:
@@ -134,12 +151,14 @@ def run_nas_monitor(profile_id: int | None = None) -> None:
     ready = bool(status.get("ready"))
 
     if ready and not previous_ready:
+        _notify_nas_transition("nas_online", status)
         _run_nas_group_actions(
             nas_service.dependent_groups(auto_start_only=True, profile_id=profile_id),
             "start",
             "nas-online",
         )
     elif previous_ready and not ready:
+        _notify_nas_transition("nas_offline", status)
         _run_nas_group_actions(
             nas_service.dependent_groups(auto_stop_only=True, profile_id=profile_id),
             "stop",
