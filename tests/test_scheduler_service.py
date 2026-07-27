@@ -3,6 +3,52 @@ from datetime import datetime
 from app import scheduler_service
 
 
+def test_nas_group_action_retries_failed_runs(monkeypatch):
+    runs = iter([1, 2, 3])
+    statuses = {
+        1: {"status": "failed"},
+        2: {"status": "failed"},
+        3: {"status": "success"},
+    }
+    triggers: list[str] = []
+    sleeps: list[int] = []
+
+    def start_group_run(group_id, action, background, trigger_type, check_nas):
+        assert group_id == 7
+        assert action == "start"
+        assert background is False
+        assert check_nas is False
+        triggers.append(trigger_type)
+        return next(runs)
+
+    monkeypatch.setattr(scheduler_service.action_service, "start_group_run", start_group_run)
+    monkeypatch.setattr(scheduler_service.database, "get_action_run", lambda run_id: statuses[run_id])
+    monkeypatch.setattr(scheduler_service.time, "sleep", sleeps.append)
+
+    scheduler_service._run_nas_group_actions([{"id": 7}], "start", "nas-online")
+
+    assert triggers == ["nas-online", "nas-online-retry-2", "nas-online-retry-3"]
+    assert sleeps == [scheduler_service.NAS_ACTION_RETRY_SECONDS] * 2
+
+
+def test_nas_group_action_stops_after_max_failed_attempts(monkeypatch):
+    attempts: list[str] = []
+    sleeps: list[int] = []
+
+    def start_group_run(group_id, action, background, trigger_type, check_nas):
+        attempts.append(trigger_type)
+        return len(attempts)
+
+    monkeypatch.setattr(scheduler_service.action_service, "start_group_run", start_group_run)
+    monkeypatch.setattr(scheduler_service.database, "get_action_run", lambda run_id: {"status": "failed"})
+    monkeypatch.setattr(scheduler_service.time, "sleep", sleeps.append)
+
+    scheduler_service._run_nas_group_actions([{"id": 1}], "start", "nas-online")
+
+    assert len(attempts) == scheduler_service.NAS_ACTION_MAX_ATTEMPTS
+    assert len(sleeps) == scheduler_service.NAS_ACTION_MAX_ATTEMPTS - 1
+
+
 def test_upcoming_occurrences_expands_daily_schedule(monkeypatch):
     monkeypatch.setattr(
         scheduler_service.database,
