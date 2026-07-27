@@ -222,7 +222,7 @@ def _finish_execution(run_id: int, execute: Callable[[], None]) -> None:
         database.finish_action_run(run_id, "success")
     except RunCancelled as exc:
         _finish_run_cancelled(run_id, str(exc))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - execution boundary records unexpected failures
         _finish_run_failed(run_id, exc)
 
 
