@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -10,6 +11,8 @@ scheduler = BackgroundScheduler()
 NAS_MONITOR_PREFIX = "nas-monitor-"
 LEGACY_NAS_MONITOR_JOB_ID = "nas-monitor-legacy"
 RETENTION_JOB_ID = "log-retention"
+NAS_ACTION_MAX_ATTEMPTS = 5
+NAS_ACTION_RETRY_SECONDS = 30
 
 
 def _job_id(schedule_id: int) -> str:
@@ -110,16 +113,25 @@ def _reload_retention_job() -> None:
 
 def _run_nas_group_actions(groups: list[dict], action: str, trigger_type: str) -> None:
     for group in groups:
-        try:
-            action_service.start_group_run(
-                group["id"],
-                action,
-                background=False,
-                trigger_type=trigger_type,
-                check_nas=False,
-            )
-        except Exception:
-            continue
+        for attempt in range(1, NAS_ACTION_MAX_ATTEMPTS + 1):
+            attempt_trigger = trigger_type if attempt == 1 else f"{trigger_type}-retry-{attempt}"
+            try:
+                run_id = action_service.start_group_run(
+                    group["id"],
+                    action,
+                    background=False,
+                    trigger_type=attempt_trigger,
+                    check_nas=False,
+                )
+                run = database.get_action_run(run_id)
+                if not run or run.get("status") != "failed":
+                    break
+            except Exception:
+                if attempt >= NAS_ACTION_MAX_ATTEMPTS:
+                    break
+
+            if attempt < NAS_ACTION_MAX_ATTEMPTS:
+                time.sleep(NAS_ACTION_RETRY_SECONDS)
 
 
 def _notify_nas_transition(event: str, status: dict) -> None:
