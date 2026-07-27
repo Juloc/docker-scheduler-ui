@@ -6,7 +6,6 @@ from docker.errors import APIError, DockerException, NotFound
 
 from app import database
 
-
 VALID_ACTIONS = {"start", "stop", "restart"}
 
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 _ROOT = Path(__file__).resolve().parent.parent
 _VERSION_FILE = _ROOT / "VERSION"
 

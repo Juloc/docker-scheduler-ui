@@ -4,10 +4,9 @@ import json
 import os
 import shutil
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable
-
 
 DB_PATH = Path(os.getenv("APP_DB", "/app/data/app.db"))
 SCHEMA_VERSION = 2

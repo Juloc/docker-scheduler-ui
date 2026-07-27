@@ -9,7 +9,6 @@ from pathlib import Path
 
 from app import database
 
-
 DEFAULT_PING_TIMEOUT_SECONDS = 2
 
 

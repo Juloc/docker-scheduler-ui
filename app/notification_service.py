@@ -6,7 +6,6 @@ import urllib.request
 
 from app import database
 
-
 DEFAULT_TIMEOUT_SECONDS = 5
 DEFAULT_RETRIES = 2
 
@@ -19,7 +18,7 @@ def list_webhooks() -> list[dict]:
 def save_webhook(webhook_id: int | None, name: str, kind: str, url: str, enabled: bool, events: list[str]) -> int:
     kind = kind if kind in {"generic", "discord", "home_assistant"} else "generic"
     now = database._now()
-    event_value = ",".join(sorted(set(event for event in events if event)))
+    event_value = ",".join(sorted({event for event in events if event}))
     with database.get_connection() as conn:
         if webhook_id is None:
             cursor = conn.execute(
@@ -78,7 +77,7 @@ def send_event(event: str, title: str, message: str, details: dict | None = None
             continue
         try:
             _post(webhook["url"], _payload(webhook["kind"], event, title, message, details))
-        except Exception as exc:
+        except RuntimeError as exc:
             errors.append(f"{webhook['name']}: {exc}")
     return errors
 

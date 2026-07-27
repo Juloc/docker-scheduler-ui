@@ -1,10 +1,14 @@
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from app import database, nas_service, notification_service
-from app.docker_ops import DockerOperationError, get_container_info, run_container_action, wait_for_container_healthy
-
+from app.docker_ops import (
+    DockerOperationError,
+    get_container_info,
+    run_container_action,
+    wait_for_container_healthy,
+)
 
 NAS_GATED_GROUP_ACTIONS = {"start", "restart"}
 CONFLICT_SKIP = "skip"
@@ -218,7 +222,7 @@ def _finish_execution(run_id: int, execute: Callable[[], None]) -> None:
         database.finish_action_run(run_id, "success")
     except RunCancelled as exc:
         _finish_run_cancelled(run_id, str(exc))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - execution boundary records unexpected failures
         _finish_run_failed(run_id, exc)
 
 

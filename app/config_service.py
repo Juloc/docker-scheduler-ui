@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 
 from app import database
 
-
 CONFIG_TABLES = ("groups", "group_containers", "schedules", "nas_profiles", "webhooks")
 
 

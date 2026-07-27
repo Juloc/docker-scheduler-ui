@@ -1,11 +1,10 @@
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app import action_service, database, nas_service, notification_service
-
 
 scheduler = BackgroundScheduler()
 NAS_MONITOR_PREFIX = "nas-monitor-"
@@ -77,7 +76,7 @@ def reload_nas_monitor() -> None:
                 replace_existing=True,
                 coalesce=True,
                 max_instances=1,
-                next_run_time=datetime.now(),
+                next_run_time=datetime.now(timezone.utc),
             )
         return
 
@@ -92,7 +91,7 @@ def reload_nas_monitor() -> None:
             replace_existing=True,
             coalesce=True,
             max_instances=1,
-            next_run_time=datetime.now(),
+            next_run_time=datetime.now(timezone.utc),
         )
 
 
@@ -126,7 +125,7 @@ def _run_nas_group_actions(groups: list[dict], action: str, trigger_type: str) -
                 run = database.get_action_run(run_id)
                 if not run or run.get("status") != "failed":
                     break
-            except Exception:
+            except Exception:  # noqa: BLE001 - retry boundary must survive unexpected action failures
                 if attempt >= NAS_ACTION_MAX_ATTEMPTS:
                     break
 
@@ -197,7 +196,7 @@ def run_schedule(schedule_id: int) -> None:
         if run and run["status"] in {"failed", "skipped", "cancelled"}:
             error = run["error"] or run["status"]
         database.mark_schedule_run(schedule_id, error)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - scheduler jobs must persist errors instead of terminating
         database.mark_schedule_run(schedule_id, str(exc))
 
 
