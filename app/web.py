@@ -59,7 +59,7 @@ def render(request: Request, template_name: str, context: dict | None = None, st
         "nav_groups_class": "active" if current_path.startswith("/groups") else "",
         "nav_schedules_class": "active" if current_path.startswith("/schedules") else "",
         "nav_nas_class": "active" if current_path.startswith("/nas") else "",
-        "nav_logs_class": "active" if current_path.startswith("/logs") or current_path.startswith("/runs") else "",
+        "nav_logs_class": "active" if current_path.startswith(("/logs", "/runs")) else "",
         "nav_settings_class": "active" if current_path.startswith("/settings") else "",
     }
     if context:

@@ -9,7 +9,6 @@ from urllib.parse import quote
 from fastapi import Request
 from fastapi.responses import RedirectResponse, Response
 
-
 SESSION_COOKIE = "docker_scheduler_session"
 
 

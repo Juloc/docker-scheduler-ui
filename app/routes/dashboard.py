@@ -4,7 +4,15 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from app import action_service, auth, database, nas_service
 from app.docker_ops import VALID_ACTIONS, DockerOperationError, get_container_logs
 from app.version import ASSET_VERSION
-from app.web import agenda_rows, dashboard_stats, enrich_groups, redirect_to, render, templates, with_docker_containers
+from app.web import (
+    agenda_rows,
+    dashboard_stats,
+    enrich_groups,
+    redirect_to,
+    render,
+    templates,
+    with_docker_containers,
+)
 
 router = APIRouter()
 

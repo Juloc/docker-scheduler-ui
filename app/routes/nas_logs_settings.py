@@ -3,7 +3,14 @@ import sqlite3
 from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 
-from app import action_service, config_service, database, nas_service, notification_service, scheduler_service
+from app import (
+    action_service,
+    config_service,
+    database,
+    nas_service,
+    notification_service,
+    scheduler_service,
+)
 from app.docker_ops import DockerOperationError
 from app.web import WEBHOOK_EVENTS, redirect_to, render, safe_int
 
@@ -213,5 +220,5 @@ def test_webhook(webhook_id: int):
     try:
         notification_service.test_webhook(webhook_id)
         return redirect_to("/settings", message="Webhook test succeeded.")
-    except Exception as exc:
+    except (RuntimeError, ValueError) as exc:
         return redirect_to("/settings", error=str(exc))

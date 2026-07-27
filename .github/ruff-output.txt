@@ -1,0 +1,11 @@
+BLE001 Do not catch blind exception: `Exception`
+   --> app/action_service.py:225:12
+    |
+223 |     except RunCancelled as exc:
+224 |         _finish_run_cancelled(run_id, str(exc))
+225 |     except Exception as exc:
+    |            ^^^^^^^^^
+226 |         _finish_run_failed(run_id, exc)
+    |
+
+Found 1 error.

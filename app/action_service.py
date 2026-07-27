@@ -1,10 +1,14 @@
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from app import database, nas_service, notification_service
-from app.docker_ops import DockerOperationError, get_container_info, run_container_action, wait_for_container_healthy
-
+from app.docker_ops import (
+    DockerOperationError,
+    get_container_info,
+    run_container_action,
+    wait_for_container_healthy,
+)
 
 NAS_GATED_GROUP_ACTIONS = {"start", "restart"}
 CONFLICT_SKIP = "skip"
