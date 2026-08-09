@@ -32,14 +32,14 @@ jobs:
       - name: Tests
         run: pytest -vv --tb=short --junitxml=pytest.xml
 
-      - name: Upload test diagnostics
-        if: always()
+      - name: Upload failed test diagnostics
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: pytest-results
           path: pytest.xml
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
 
       - name: Compile check
         run: python -m compileall -q app
