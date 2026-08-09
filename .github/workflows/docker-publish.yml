@@ -15,6 +15,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: juloc/docker-scheduler-ui
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
   publish:
